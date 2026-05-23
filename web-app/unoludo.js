@@ -7,7 +7,7 @@
  * @author Unico Yin
  * @version 2025/26
  */
-import R from "./ramda.js";
+//import R from "./ramda.js";
 
 const Unoludo = Object.create(null);
 

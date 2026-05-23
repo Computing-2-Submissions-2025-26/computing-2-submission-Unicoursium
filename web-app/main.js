@@ -1,4 +1,4 @@
-import R from "./ramda.js";
+//import R from "./ramda.js";
 import Unoludo from "./unoludo.js";
 import UnoludoBoard from "./board_positions.js";
 import UnoludoAssets from "./assets.js";
