@@ -19,12 +19,66 @@ let combo_card_id = undefined;
 let target_mode = undefined;
 let cpu_timer = undefined;
 const piece_elements = Object.create(null);
-
+const draw_end_turn_button = document.getElementById("draw-end-turn");
 const clear_selection = function () {
     selected_card_id = undefined;
     combo_card_id = undefined;
     target_mode = undefined;
 };
+
+const help_overlay = document.getElementById("help-overlay");
+const help_image = document.getElementById("help-image");
+const help_page_indicator = document.getElementById("help-page-indicator");
+const open_help_button = document.getElementById("open-help");
+const close_help_button = document.getElementById("close-help");
+const help_prev_button = document.getElementById("help-prev");
+const help_next_button = document.getElementById("help-next");
+const help_pages = Object.freeze([
+    "./assets/img/help1.png",
+    "./assets/img/help2.png",
+    "./assets/img/help3.png"
+]);
+
+let help_page_index = 0;
+
+const render_help_page = function () {
+    help_image.src = help_pages[help_page_index];
+    help_image.alt = "Unoludo help page " + (help_page_index + 1);
+    help_page_indicator.textContent = (
+        (help_page_index + 1) + " / " + help_pages.length
+    );
+};
+
+const open_help = function () {
+    help_page_index = 0;
+    render_help_page();
+    help_overlay.classList.remove("hidden");
+};
+
+const close_help = function () {
+    help_overlay.classList.add("hidden");
+};
+
+const show_previous_help_page = function () {
+    help_page_index = (
+        help_page_index - 1 + help_pages.length
+    ) % help_pages.length;
+
+    render_help_page();
+};
+
+const show_next_help_page = function () {
+    help_page_index = (
+        help_page_index + 1
+    ) % help_pages.length;
+
+    render_help_page();
+};
+
+open_help_button.addEventListener("click", open_help);
+close_help_button.addEventListener("click", close_help);
+help_prev_button.addEventListener("click", show_previous_help_page);
+help_next_button.addEventListener("click", show_next_help_page);
 
 const is_active_plane = function (plane) {
     return plane.status === "track" || plane.status === "home";
@@ -332,10 +386,67 @@ const find_cpu_wild4_move = function (cpu_state, player) {
     return result;
 };
 
+const find_cpu_reward_move = function (cpu_state, player) {
+    let result;
+
+    player.hand.some(function (card) {
+        if (card.type !== "reward") {
+            return false;
+        }
+
+        player.planes.some(function (plane, plane_index) {
+            const next_state = Unoludo.play_reward_card(
+                cpu_state,
+                card.id,
+                player.id,
+                plane_index
+            );
+
+            if (next_state !== undefined) {
+                result = {
+                    state: next_state,
+                    message: player.name + " played reward " + card.value + "."
+                };
+                return true;
+            }
+
+            return false;
+        });
+
+        if (result !== undefined) {
+            return true;
+        }
+
+        return cpu_state.players.some(function (target_player) {
+            return target_player.planes.some(function (plane, plane_index) {
+                const next_state = Unoludo.play_reward_card(
+                    cpu_state,
+                    card.id,
+                    target_player.id,
+                    plane_index
+                );
+
+                if (next_state !== undefined) {
+                    result = {
+                        state: next_state,
+                        message: player.name + " played reward " + card.value + "."
+                    };
+                    return true;
+                }
+
+                return false;
+            });
+        });
+    });
+
+    return result;
+};
+
 const find_cpu_action = function (cpu_state) {
     const player = Unoludo.current_player(cpu_state);
 
     return (
+        find_cpu_reward_move(cpu_state, player) ||
         find_cpu_number_move(cpu_state, player) ||
         find_cpu_draw2_move(cpu_state, player) ||
         find_cpu_skip_move(cpu_state, player) ||
@@ -548,7 +659,33 @@ const play_selected_card_without_plane = function () {
         return;
     }
 
+    if (card.type === "reward") {
+        target_mode = "reward_target";
+        action_message.textContent = "Select any active plane for reward " + card.value + ".";
+        return;
+    }
 };
+
+const play_reward_on_plane = function (target_player_id, plane_index) {
+    const next_state = Unoludo.play_reward_card(
+        state,
+        selected_card_id,
+        target_player_id,
+        plane_index
+    );
+
+    if (next_state === undefined) {
+        action_message.textContent = "That reward target is not legal.";
+        return;
+    }
+
+    target_mode = undefined;
+    finish_successful_action(
+        next_state,
+        "Played reward card and moved a plane."
+    );
+};
+
 
 const play_selected_card_on_plane = function (plane_index) {
     const player = Unoludo.current_player(state);
@@ -787,6 +924,14 @@ const render_piece = function (
         piece.onclick = function () {
             play_selected_card_on_plane(plane_index);
         };
+    } else if (
+        plane.status !== "finished" &&
+        target_mode === "reward_target"
+    ) {
+        piece.className += " target-piece";
+        piece.onclick = function () {
+            play_reward_on_plane(player.id, plane_index);
+        };
     }
 
     if (plane.status !== "finished" && plane.shielded) {
@@ -962,7 +1107,11 @@ const render_info = function () {
     current_player_text.textContent = "Current Player: " + current_player.name;
     top_discard_text.textContent = "Top Discard: " + top_card.id;
     draw_count_text.textContent = "Draw Pile: " + state.draw_pile.length;
-
+    if (current_player.skip_locked) {
+        draw_end_turn_button.textContent = "End Skipped Turn";
+    } else {
+        draw_end_turn_button.textContent = "Draw 1 & End Turn";
+    }
     game_log.replaceChildren();
 
     state.log.forEach(function (message) {

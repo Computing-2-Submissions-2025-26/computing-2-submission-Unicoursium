@@ -53,7 +53,9 @@ UnoludoAssets.card_image = function (card) {
     if (card.type === "skip") {
         return UnoludoAssets.image_root + prefix + "S.png";
     }
-
+    if (card.type === "reward") {
+        return UnoludoAssets.image_root + "P" + card.value + ".png";
+    }
     return "";
 };
 

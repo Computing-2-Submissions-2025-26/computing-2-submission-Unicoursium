@@ -158,28 +158,28 @@ UnoludoBoard.home_positions = Object.freeze({
  */
 UnoludoBoard.base_positions = Object.freeze({
     blue: Object.freeze([
-        Object.freeze({x: 7.49, y: 82.22}),
-        Object.freeze({x: 17.59, y: 82.08}),
-        Object.freeze({x: 7.77, y: 92.32}),
-        Object.freeze({x: 17.73, y: 92.32})
+        Object.freeze({x: 7.5, y: 82.44}),
+        Object.freeze({x: 17.5, y: 82.44}),
+        Object.freeze({x: 7.5, y: 92.32}),
+        Object.freeze({x: 17.5, y: 92.32})
     ]),
     green: Object.freeze([
-        Object.freeze({x: 7.77, y: 7.72}),
-        Object.freeze({x: 17.73, y: 7.44}),
-        Object.freeze({x: 7.91, y: 17.82}),
-        Object.freeze({x: 17.87, y: 17.82})
+        Object.freeze({x: 7.5, y: 7.5}),
+        Object.freeze({x: 17.5, y: 7.5}),
+        Object.freeze({x: 7.5, y: 17.5}),
+        Object.freeze({x: 17.5, y: 17.5})
     ]),
     red: Object.freeze([
-        Object.freeze({x: 82.41, y: 7.86}),
-        Object.freeze({x: 92.51, y: 8}),
-        Object.freeze({x: 82.55, y: 17.82}),
-        Object.freeze({x: 92.37, y: 17.96})
+        Object.freeze({x: 82.44, y: 7.5}),
+        Object.freeze({x: 92.37, y: 7.5}),
+        Object.freeze({x: 82.44, y: 17.5}),
+        Object.freeze({x: 92.37, y: 17.5})
     ]),
     yellow: Object.freeze([
-        Object.freeze({x: 82.41, y: 82.22}),
-        Object.freeze({x: 92.51, y: 82.22}),
-        Object.freeze({x: 82.27, y: 92.04}),
-        Object.freeze({x: 92.37, y: 92.32})
+        Object.freeze({x: 82.44, y: 82.44}),
+        Object.freeze({x: 92.37, y: 82.44}),
+        Object.freeze({x: 82.44, y: 92.37}),
+        Object.freeze({x: 92.37, y: 92.37})
     ])
 });
 

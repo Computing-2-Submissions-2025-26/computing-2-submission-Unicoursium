@@ -348,6 +348,146 @@ button:active {
     line-height: 1.35;
 }
 
+.hidden {
+    display: none !important;
+}
+
+.help-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(10, 29, 66, 0.96);
+    backdrop-filter: blur(8px);
+}
+
+.help-overlay.hidden {
+    display: none;
+}
+
+.help-content {
+    position: relative;
+    max-width: 92vw;
+    max-height: 92vh;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.help-image {
+    max-width: 88vw;
+    max-height: 84vh;
+    object-fit: contain;
+
+    border-radius: 18px;
+    box-shadow:
+        0 0 0 2px rgba(96, 165, 250, 0.65),
+        0 24px 70px rgba(0, 0, 0, 0.5);
+}
+
+.help-page-indicator {
+    margin: 12px 0 0 0;
+    color: #dbeafe;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.help-close {
+    position: fixed;
+    top: 22px;
+    right: 28px;
+    z-index: 10001;
+
+    width: 52px;
+    height: 52px;
+
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+
+    background: rgba(15, 23, 42, 0.85);
+    color: white;
+
+    font-size: 36px;
+    line-height: 1;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.help-close:hover {
+    background: rgba(239, 68, 68, 0.9);
+    transform: scale(1.06);
+}
+
+.help-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+
+    width: 64px;
+    height: 96px;
+
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 18px;
+
+    background: rgba(15, 23, 42, 0.75);
+    color: white;
+
+    font-size: 64px;
+    line-height: 1;
+    font-weight: 700;
+
+    cursor: pointer;
+    z-index: 10001;
+}
+
+.help-nav:hover {
+    background: rgba(37, 99, 235, 0.9);
+    transform: translateY(-50%) scale(1.05);
+}
+
+.help-prev {
+    left: 28px;
+}
+
+.help-next {
+    right: 28px;
+}
+
+@media (max-width: 800px) {
+    .help-nav {
+        width: 48px;
+        height: 72px;
+        font-size: 48px;
+    }
+
+    .help-prev {
+        left: 12px;
+    }
+
+    .help-next {
+        right: 12px;
+    }
+
+    .help-close {
+        top: 12px;
+        right: 12px;
+    }
+
+    .help-image {
+        max-width: 94vw;
+        max-height: 78vh;
+    }
+}
+
+
 /* Responsive */
 
 @media (max-width: 1000px) {
