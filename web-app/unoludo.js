@@ -1773,15 +1773,45 @@ Unoludo.play_skip_card = function (
  * @param {number} steps The number of spaces to move backwards.
  * @returns {(Unoludo.Plane | undefined)} The moved plane, or undefined.
  */
-const move_plane_backward = function (plane, steps) {
+const move_plane_backward = function (plane, steps, colour) {
+    const start_position = Unoludo.start_positions[colour];
+    const entry_position = Unoludo.home_entry_positions[colour];
+    let distance_from_start;
+    let entry_distance;
+    let next_distance;
     let next_position;
 
+    if (steps <= 0) {
+        return undefined;
+    }
+
+    if (start_position === undefined || entry_position === undefined) {
+        return undefined;
+    }
+
+    if (plane.status === "base" || plane.status === "finished") {
+        return undefined;
+    }
+
     if (plane.status === "track") {
-        next_position = plane.position - steps;
+        distance_from_start = (
+            (plane.position - start_position + Unoludo.track_length) %
+            Unoludo.track_length
+        );
+
+        next_distance = distance_from_start - steps;
+
+        if (next_distance < 0) {
+            return plane_returned_to_base();
+        }
+
+        next_position = wrapped_track_position(
+            start_position + next_distance
+        );
 
         return Object.freeze({
             status: "track",
-            position: Math.max(0, next_position),
+            position: next_position,
             shielded: plane.shielded,
             frozen: plane.frozen
         });
@@ -1799,9 +1829,22 @@ const move_plane_backward = function (plane, steps) {
             });
         }
 
+        entry_distance = (
+            (entry_position - start_position + Unoludo.track_length) %
+            Unoludo.track_length
+        );
+
+        next_distance = entry_distance + next_position + 1;
+
+        if (next_distance < 0) {
+            return plane_returned_to_base();
+        }
+
         return Object.freeze({
             status: "track",
-            position: Unoludo.track_length + next_position,
+            position: wrapped_track_position(
+                start_position + next_distance
+            ),
             shielded: plane.shielded,
             frozen: plane.frozen
         });
@@ -1890,7 +1933,11 @@ Unoludo.play_reverse_combo = function (
         return undefined;
     }
 
-    moved_plane = move_plane_backward(target_plane, number_card.value);
+    moved_plane = move_plane_backward(
+        target_plane,
+        number_card.value,
+        target_player.colour
+    );
 
     if (moved_plane === undefined) {
         return undefined;
