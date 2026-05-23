@@ -335,7 +335,7 @@ Unoludo.deal_initial_hands = function (players, draw_pile, hand_size = 5) {
 
         return Object.freeze({
             ...player,
-            hand: Object.freeze(hand)
+            hand: sorted_hand(hand)
         });
     });
 
@@ -385,6 +385,70 @@ Unoludo.start_discard_pile = function (draw_pile) {
         discard_pile: Object.freeze([top_card]),
         active_colour: top_card.colour
     });
+};
+
+const card_colour_order = Object.freeze({
+    blue: 0,
+    green: 1,
+    red: 2,
+    yellow: 3,
+    wild: 4
+});
+
+const card_type_order = function (card) {
+    if (card.type === "number") {
+        return card.value;
+    }
+
+    if (card.type === "skip") {
+        return 7;
+    }
+
+    if (card.type === "reverse") {
+        return 8;
+    }
+
+    if (card.type === "draw2") {
+        return 9;
+    }
+
+    if (card.type === "wild") {
+        return 10;
+    }
+
+    if (card.type === "wild4") {
+        return 11;
+    }
+
+    return 99;
+};
+
+const sorted_hand = function (hand) {
+    const cards = hand.slice();
+
+    cards.sort(function (card_a, card_b) {
+        const colour_difference = (
+            card_colour_order[card_a.colour] -
+            card_colour_order[card_b.colour]
+        );
+
+        const type_difference = (
+            card_type_order(card_a) -
+            card_type_order(card_b)
+        );
+
+        if (colour_difference !== 0) {
+            return colour_difference;
+        }
+
+        if (type_difference !== 0) {
+            return type_difference;
+        }
+
+        return card_a.id.localeCompare(card_b.id);
+    });
+
+    return Object.freeze(cards);
 };
 
 /**
@@ -521,7 +585,9 @@ Unoludo.can_play_card = function (card, state) {
         state.active_colour
     );
 };
-
+const is_valid_colour = function (colour) {
+    return Unoludo.colours.includes(colour);
+};
 /**
  * Return the cards in a player's hand that are currently playable.
  *
@@ -601,7 +667,7 @@ Unoludo.remove_card_from_hand = function (player, card_id) {
         name: player.name,
         colour: player.colour,
         kind: player.kind,
-        hand: Object.freeze(player.hand.filter(function (hand_card) {
+        hand: sorted_hand(player.hand.filter(function (hand_card) {
             return hand_card.id !== card_id;
         })),
         planes: player.planes
@@ -747,6 +813,33 @@ Unoludo.update_plane = function (
     return Unoludo.update_player(state, player_id, new_player);
 };
 
+const create_refill_deck = function (state) {
+    const suffix = "-refill-" + state.log.length;
+
+    return Object.freeze(Unoludo.create_deck().map(function (card) {
+        return Unoludo.card(
+            card.id + suffix,
+            card.type,
+            card.colour,
+            card.value
+        );
+    }));
+};
+
+const draw_pile_with_enough_cards = function (state, count) {
+    let draw_pile = state.draw_pile;
+
+    while (draw_pile.length < count) {
+        draw_pile = Object.freeze(
+            draw_pile.concat(
+                Unoludo.shuffle_deck(create_refill_deck(state))
+            )
+        );
+    }
+
+    return draw_pile;
+};
+
 /**
  * Draw cards for a player.
  *
@@ -762,15 +855,16 @@ Unoludo.update_plane = function (
  */
 Unoludo.draw_cards = function (state, player_id, count) {
     const player = state.players[player_id];
-    const drawn_cards = state.draw_pile.slice(0, count);
-    const remaining_draw_pile = state.draw_pile.slice(drawn_cards.length);
+    const available_draw_pile = draw_pile_with_enough_cards(state, count);
+    const drawn_cards = available_draw_pile.slice(0, count);
+    const remaining_draw_pile = available_draw_pile.slice(drawn_cards.length);
 
     const new_player = Object.freeze({
         id: player.id,
         name: player.name,
         colour: player.colour,
         kind: player.kind,
-        hand: Object.freeze(player.hand.concat(drawn_cards)),
+        hand: sorted_hand(player.hand.concat(drawn_cards)),
         planes: player.planes
     });
 
@@ -888,6 +982,34 @@ Unoludo.end_turn = function (state) {
 };
 
 /**
+ * Draw one card for the current player and end their turn.
+ *
+ * This is the alternative to playing a card. The drawn card cannot be played
+ * immediately in the same turn.
+ *
+ * @memberof Unoludo
+ * @function
+ * @param {Unoludo.State} state The current game state.
+ * @returns {Unoludo.State} The updated state after drawing and ending turn.
+ */
+Unoludo.draw_one_and_end_turn = function (state) {
+    const player = Unoludo.current_player(state);
+    let state_after_draw;
+
+    if (Unoludo.is_ended(state)) {
+        return undefined;
+    }
+
+    state_after_draw = Unoludo.draw_cards(
+        state,
+        player.id,
+        1
+    );
+
+    return Unoludo.end_turn(state_after_draw);
+};
+
+/**
  * Remove a card from a player and place it on the discard pile.
  *
  * @function
@@ -945,42 +1067,81 @@ const commit_played_card = function (
  * @param {number} steps The number of spaces to move.
  * @returns {(Unoludo.Plane | undefined)} The moved plane, or undefined.
  */
-const move_active_plane = function (plane, steps) {
+const wrapped_track_position = function (position) {
+    return ((position % Unoludo.track_length) + Unoludo.track_length) % Unoludo.track_length;
+};
+
+const has_passed_home_entry = function (start_position, steps, entry_position) {
+    let distance_to_entry;
+
+    if (steps <= 0) {
+        return false;
+    }
+
+    distance_to_entry = (
+        (entry_position - start_position + Unoludo.track_length) %
+        Unoludo.track_length
+    );
+
+    if (distance_to_entry === 0) {
+        distance_to_entry = Unoludo.track_length;
+    }
+
+    return steps > distance_to_entry;
+};
+
+const move_active_plane = function (plane, steps, colour) {
+    const entry_position = Unoludo.home_entry_positions[colour];
+    let distance_to_entry;
+    let home_position;
     let next_position;
 
     if (plane.status === "track") {
-        next_position = plane.position + steps;
-
-        if (next_position < Unoludo.track_length) {
-            return Object.freeze({
-                status: "track",
-                position: next_position,
-                shielded: plane.shielded,
-                frozen: plane.frozen
-            });
+        if (entry_position === undefined) {
+            return undefined;
         }
 
-        next_position = next_position - Unoludo.track_length;
+        if (has_passed_home_entry(plane.position, steps, entry_position)) {
+            distance_to_entry = (
+                (entry_position - plane.position + Unoludo.track_length) %
+                Unoludo.track_length
+            );
 
-        if (next_position < Unoludo.home_lane_length) {
-            return Object.freeze({
-                status: "home",
-                position: next_position,
-                shielded: plane.shielded,
-                frozen: plane.frozen
-            });
+            if (distance_to_entry === 0) {
+                distance_to_entry = Unoludo.track_length;
+            }
+
+            home_position = steps - distance_to_entry - 1;
+
+            if (home_position < Unoludo.home_lane_length) {
+                return Object.freeze({
+                    status: "home",
+                    position: home_position,
+                    shielded: plane.shielded,
+                    frozen: plane.frozen
+                });
+            }
+
+            if (home_position === Unoludo.home_lane_length) {
+                return Object.freeze({
+                    status: "finished",
+                    position: Unoludo.home_lane_length,
+                    shielded: false,
+                    frozen: false
+                });
+            }
+
+            return undefined;
         }
 
-        if (next_position === Unoludo.home_lane_length) {
-            return Object.freeze({
-                status: "finished",
-                position: Unoludo.home_lane_length,
-                shielded: false,
-                frozen: false
-            });
-        }
+        next_position = wrapped_track_position(plane.position + steps);
 
-        return undefined;
+        return Object.freeze({
+            status: "track",
+            position: next_position,
+            shielded: plane.shielded,
+            frozen: plane.frozen
+        });
     }
 
     if (plane.status === "home") {
@@ -1238,7 +1399,7 @@ Unoludo.play_number_card = function (state, card_id, plane_index) {
             + player.colour + "."
         );
     } else {
-        new_plane = move_active_plane(plane, card.value);
+        new_plane = move_active_plane(plane, card.value, player.colour);
 
         if (new_plane === undefined) {
             return undefined;
@@ -1341,10 +1502,14 @@ Unoludo.play_draw2_card = function (state, card_id) {
  * @param {Unoludo.Colour} target_plane_colour The next player's plane to freeze.
  * @returns {(Unoludo.State | undefined)} The updated state, or undefined.
  */
-Unoludo.play_skip_card = function (state, card_id, target_plane_index) {
+Unoludo.play_skip_card = function (
+    state,
+    card_id,
+    target_player_id,
+    target_plane_index
+) {
     const player = Unoludo.current_player(state);
     const card = Unoludo.card_in_hand(player, card_id);
-    const target_player_id = Unoludo.next_player_id(state);
     const target_player = state.players[target_player_id];
     let target_plane;
     let frozen_plane;
@@ -1363,6 +1528,14 @@ Unoludo.play_skip_card = function (state, card_id, target_plane_index) {
     }
 
     if (card.type !== "skip") {
+        return undefined;
+    }
+
+    if (target_player === undefined) {
+        return undefined;
+    }
+
+    if (target_player.id === player.id) {
         return undefined;
     }
 
@@ -1653,13 +1826,30 @@ Unoludo.play_wild_combo = function (
     target_plane = target_player.planes[target_plane_index];
 
     if (target_plane === undefined) {
-        return undefined;
-    }
+            return undefined;
+        }
 
-    moved_plane = move_active_plane(target_plane, number_card.value);
+    if (target_plane.status === "base") {
+        if (number_card.value !== 6) {
+            return undefined;
+        }
 
-    if (moved_plane === undefined) {
-        return undefined;
+        moved_plane = Object.freeze({
+            status: "track",
+            position: Unoludo.start_positions[target_player.colour],
+            shielded: false,
+            frozen: false
+        });
+    } else {
+        moved_plane = move_active_plane(
+            target_plane,
+            number_card.value,
+            target_player.colour
+        );
+
+        if (moved_plane === undefined) {
+            return undefined;
+        }
     }
 
     player_after_wild = Unoludo.remove_card_from_hand(
@@ -1696,10 +1886,9 @@ Unoludo.play_wild_combo = function (
         log: Object.freeze(state.log.concat([
             player.name + " played Wild with "
             + number_card.colour + " " + number_card.value
-            + " and moved "
+            + ", and affected "
             + target_player.name + "'s plane "
-            + target_plane_index + " forward by "
-            + number_card.value + "."
+            + target_plane_index + "."
         ]))
     });
 
@@ -1735,7 +1924,7 @@ const advance_all_active_planes = function (player) {
         kind: player.kind,
         hand: player.hand,
         planes: Object.freeze(player.planes.map(function (plane) {
-            const moved_plane = move_active_plane(plane, 2);
+            const moved_plane = move_active_plane(plane, 2, player.colour);
 
             if (moved_plane === undefined) {
                 return plane;
@@ -1762,7 +1951,7 @@ const advance_all_active_planes = function (player) {
  * @param {"draw4" | "advance_all"} option The chosen effect.
  * @returns {(Unoludo.State | undefined)} The updated state, or undefined.
  */
-Unoludo.play_wild4_card = function (state, card_id, option) {
+Unoludo.play_wild4_card = function (state, card_id, option, chosen_colour) {
     const player = Unoludo.current_player(state);
     const card = Unoludo.card_in_hand(player, card_id);
     let player_after_card;
@@ -1785,6 +1974,10 @@ Unoludo.play_wild4_card = function (state, card_id, option) {
         return undefined;
     }
 
+    if (!is_valid_colour(chosen_colour)) {
+        return undefined;
+    }
+
     player_after_card = Unoludo.remove_card_from_hand(player, card_id);
 
     if (player_after_card === undefined) {
@@ -1800,10 +1993,10 @@ Unoludo.play_wild4_card = function (state, card_id, option) {
             player_after_card
         ),
         current_player: state.current_player,
-        active_colour: state.active_colour,
+        active_colour: chosen_colour,
         winner: state.winner,
         log: Object.freeze(state.log.concat([
-            player.name + " played Wild +4."
+            player.name + " played Wild +4 and chose " + chosen_colour + "."
         ]))
     });
 

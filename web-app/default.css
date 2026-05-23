@@ -4,7 +4,7 @@
 
 body {
     margin: 0;
-    background: #071a38;
+    background: #0A1D42;
     color: #f8fafc;
     font-family: Arial, sans-serif;
 }
@@ -14,7 +14,7 @@ body {
     height: 100vh;
     display: grid;
     grid-template-columns: 260px 1fr 320px;
-    grid-template-rows: 1fr 180px;
+    grid-template-rows: 1fr 205px;
     grid-template-areas:
         "left board right"
         "hand hand hand";
@@ -22,34 +22,81 @@ body {
     padding: 12px;
 }
 
+/* Panels */
+
 .left-panel,
 .right-panel,
 .hand-panel {
     background: rgba(15, 23, 42, 0.92);
     border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 16px;
-    padding: 16px;
-    overflow: auto;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
 .left-panel {
     grid-area: left;
+    padding: 16px;
+    overflow: auto;
 }
+
+.right-panel {
+    grid-area: right;
+    padding: 16px;
+    overflow: auto;
+}
+
+.hand-panel {
+    grid-area: hand;
+    width: 100%;
+    min-height: 190px;
+    padding: 14px 16px 8px 16px;
+    overflow: visible;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.left-panel h1 {
+    margin: 0 0 18px 0;
+    font-size: 32px;
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+}
+
+.right-panel h2,
+.hand-panel h2 {
+    margin: 0 0 8px 0;
+    font-size: 22px;
+    line-height: 1.1;
+}
+
+.hand-panel h2 {
+    align-self: flex-start;
+}
+
+#current-player,
+#action-message,
+#top-discard,
+#draw-count {
+    font-size: 14px;
+    line-height: 1.35;
+}
+
+#action-message {
+    min-height: 38px;
+    color: #dbeafe;
+}
+
+/* Board */
 
 .board-panel {
     grid-area: board;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
-}
-
-.right-panel {
-    grid-area: right;
-}
-
-.hand-panel {
-    grid-area: hand;
+    overflow: visible;
 }
 
 .board-wrapper {
@@ -64,17 +111,55 @@ body {
     display: block;
 }
 
+#discard-layer,
 #piece-layer {
     position: absolute;
     inset: 0;
 }
+
+#discard-layer {
+    pointer-events: none;
+}
+
+.center-discard-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 10%;
+    transform: translate(-50%, -50%) rotate(-10deg);
+    filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.45));
+    z-index: 5;
+    animation: discardPop 260ms ease-out;
+}
+
+@keyframes discardPop {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(-18deg) scale(0.65);
+    }
+    70% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(-8deg) scale(1.08);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+    }
+}
+
+/* Pieces */
 
 .piece {
     position: absolute;
     width: 4.2%;
     aspect-ratio: 1 / 1;
     transform: translate(-50%, -50%);
-    transition: left 240ms ease, top 240ms ease;
+    transition:
+        left 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        top 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        filter 180ms ease,
+        opacity 180ms ease,
+        transform 180ms ease;
 }
 
 .piece img {
@@ -83,24 +168,79 @@ body {
     display: block;
 }
 
+.current-player-piece {
+    cursor: pointer;
+    filter: drop-shadow(0 0 8px #facc15);
+    animation: currentPiecePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes currentPiecePulse {
+    0% {
+        filter: drop-shadow(0 0 5px #facc15);
+    }
+    50% {
+        filter: drop-shadow(0 0 14px #facc15);
+    }
+    100% {
+        filter: drop-shadow(0 0 5px #facc15);
+    }
+}
+
+.target-piece {
+    cursor: pointer;
+    filter: drop-shadow(0 0 10px #ef4444);
+}
+
 .piece.shielded {
-    filter: drop-shadow(0 0 8px #f8fafc);
+    filter:
+        drop-shadow(0 0 10px #38bdf8)
+        drop-shadow(0 0 18px #facc15);
+    animation: shieldPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes shieldPulse {
+    0% {
+        filter:
+            drop-shadow(0 0 6px #38bdf8)
+            drop-shadow(0 0 10px #facc15);
+    }
+    50% {
+        filter:
+            drop-shadow(0 0 14px #38bdf8)
+            drop-shadow(0 0 22px #facc15);
+    }
+    100% {
+        filter:
+            drop-shadow(0 0 6px #38bdf8)
+            drop-shadow(0 0 10px #facc15);
+    }
 }
 
 .piece.frozen {
     opacity: 0.55;
+    filter: grayscale(0.6) drop-shadow(0 0 10px #93c5fd);
 }
 
-.hand-cards {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
+
+.finished-marker {
+    position: absolute;
+    width: 5%;
+    aspect-ratio: 1 / 1;
+    transform: translate(-50%, -50%);
+    z-index: 4;
+    transition:
+        left 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        top 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 180ms ease;
 }
 
-.card-image {
-    height: 140px;
-    border-radius: 10px;
+.finished-marker img {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
+
+/* Buttons */
 
 .button-group {
     display: flex;
@@ -116,27 +256,100 @@ button {
     color: white;
     font-weight: 700;
     cursor: pointer;
+    transition:
+        transform 160ms ease,
+        background 160ms ease,
+        box-shadow 160ms ease;
 }
 
 button:hover {
     background: #1d4ed8;
-}
-.selected-card {
-    outline: 4px solid #facc15;
-    transform: translateY(-8px);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
 }
 
-.piece {
+button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Hand */
+
+#hand-cards {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    width: 100%;
+    min-height: 145px;
+    padding: 4px 0 0 0;
+    overflow: visible;
+}
+
+.card-image {
+    width: 112px;
+    height: auto;
+    border-radius: 12px;
+    margin-left: -30px;
     cursor: pointer;
+    position: relative;
+
+    box-shadow: 0 7px 16px rgba(0, 0, 0, 0.35);
+
+    transition:
+        transform 180ms ease,
+        filter 180ms ease,
+        box-shadow 180ms ease;
 }
+
+.card-image:first-child {
+    margin-left: 0;
+}
+
+.card-image:hover {
+    transform: translateY(-22px) scale(1.04);
+    filter: brightness(1.08);
+    box-shadow:
+        0 0 0 3px rgba(255, 255, 255, 0.55),
+        0 16px 28px rgba(0, 0, 0, 0.45);
+    z-index: 20;
+}
+
 .playable-card {
-    box-shadow: 0 0 0 3px #22c55e;
+    filter: brightness(1.08);
+    box-shadow:
+        0 0 0 3px #22c55e,
+        0 7px 16px rgba(0, 0, 0, 0.35);
 }
 
 .selected-card {
-    outline: 4px solid #facc15;
-    transform: translateY(-8px);
+    transform: translateY(-26px) scale(1.05);
+    box-shadow:
+        0 0 0 4px #facc15,
+        0 18px 30px rgba(0, 0, 0, 0.5);
+    z-index: 30;
 }
+
+.combo-card {
+    transform: translateY(-26px) scale(1.05);
+    box-shadow:
+        0 0 0 4px #a855f7,
+        0 18px 30px rgba(0, 0, 0, 0.5);
+    z-index: 28;
+}
+
+/* Log */
+
+#game-log {
+    padding-left: 22px;
+}
+
+#game-log li {
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+/* Responsive */
+
 @media (max-width: 1000px) {
     .game-layout {
         grid-template-columns: 1fr;
@@ -146,9 +359,19 @@ button:hover {
             "board"
             "right"
             "hand";
+        height: auto;
+        min-height: 100vh;
     }
 
     .board-wrapper {
         width: min(94vw, 70vh);
+    }
+
+    .hand-panel {
+        min-height: 190px;
+    }
+
+    #hand-cards {
+        min-height: 145px;
     }
 }

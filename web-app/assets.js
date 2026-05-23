@@ -9,6 +9,8 @@ UnoludoAssets.image_root = "./assets/img/";
 
 UnoludoAssets.board = UnoludoAssets.image_root + "Unoludo_Board.png";
 
+UnoludoAssets.finished_marker = UnoludoAssets.image_root + "PS.png";
+
 UnoludoAssets.colour_prefixes = Object.freeze({
     blue: "B",
     green: "G",
