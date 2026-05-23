@@ -16,19 +16,20 @@
 </head>
 <body>
     <main class="game-layout">
-        <section class="left-panel">
-            <h1>Unoludo</h1>
-            <p id="current-player">Current Player: -</p>
-            <p id="action-message">Select a card, then select one of your planes.</p>
-            <div class="button-group">
-                <button id="reset-demo">Reset Demo</button>
-                <button id="show-track-demo">Move Blue to Track 0</button>
-                <button id="show-home-demo">Move Blue to Home 0</button>
-                <button id="draw-end-turn">Draw 1 & End Turn</button>
-                <button id="cancel-action">Cancel Selection</button>
-                <button id="open-help">Help</button>
+        <aside class="left-panel">
+            <h1 class="game-title">
+                <span class="title-uno">UNO</span><span class="title-ludo">LUDO</span>
+            </h1>
+
+            <p id="current-player">Current Player: Player</p>
+
+            <div class="played-card-panel">
+                <h2 id="played-card-title">Player Played:</h2>
+                <img id="played-card-image" class="played-card-image" src="./assets/img/B6.png" alt="Last played card">
             </div>
-        </section>
+
+            <p id="action-message">Select a card, then select one of your planes.</p>
+        </aside>
 
         <section class="board-panel">
         <div class="board-wrapper" id="board-wrapper">
@@ -38,14 +39,23 @@
         </div>
         </section>
 
-        <section class="right-panel">
+        <aside class="right-panel">
             <h2>Game Info</h2>
-            <p id="top-discard">Top Discard: -</p>
-            <p id="draw-count">Draw Pile: -</p>
+            <p id="draw-count">Draw Pile:</p>
 
-            <h2>Log</h2>
-            <ol id="game-log"></ol>
-        </section>
+            <div class="right-button-group">
+                <button id="reset-demo">Restart</button>
+                <button id="debug-move">Move</button>
+                <button id="give-card">Give</button>
+                <button id="draw-end-turn">Draw & End Turn</button>
+
+                <!-- Temporarily disabled -->
+                <!-- <button id="cancel-action">Cancel Selection</button> -->
+
+                <button id="open-log">Log</button>
+                <button id="open-help">Help</button>
+            </div>
+        </aside>
 
         <section class="hand-panel">
             <h2>Your Hand</h2>
@@ -64,6 +74,15 @@
         </div>
 
         <button id="help-next" class="help-nav help-next">›</button>
+    </div>
+    
+    <div id="log-overlay" class="log-overlay hidden">
+        <button id="close-log" class="log-close">×</button>
+
+        <div class="log-modal">
+            <h2>Game Log</h2>
+            <ol id="log-overlay-list" class="log-overlay-list"></ol>
+        </div>
     </div>
 
     <script type="module" src="./main.js"></script>

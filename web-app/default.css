@@ -2,18 +2,46 @@
     box-sizing: border-box;
 }
 
+@font-face {
+    font-family: "Google Sans";
+    src: url("./assets/fonts/google_sans_regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Google Sans";
+    src: url("./assets/fonts/google_sans_medium.ttf") format("truetype");
+    font-weight: 500;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Google Sans";
+    src: url("./assets/fonts/google_sans_semibold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Google Sans";
+    src: url("./assets/fonts/google_sans_bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+}
+
 body {
     margin: 0;
     background: #0A1D42;
     color: #f8fafc;
-    font-family: Arial, sans-serif;
+    font-family: "Google Sans", Arial, sans-serif;
 }
 
 .game-layout {
     width: 100vw;
     height: 100vh;
     display: grid;
-    grid-template-columns: 260px 1fr 320px;
+    grid-template-columns: 260px 1fr 360px;
     grid-template-rows: 1fr 205px;
     grid-template-areas:
         "left board right"
@@ -36,12 +64,17 @@ body {
 .left-panel {
     grid-area: left;
     padding: 16px;
-    overflow: auto;
+    overflow: hidden;
+
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 .right-panel {
     grid-area: right;
-    padding: 16px;
+    padding: 18px;
     overflow: auto;
 }
 
@@ -58,11 +91,24 @@ body {
     justify-content: flex-start;
 }
 
-.left-panel h1 {
-    margin: 0 0 18px 0;
-    font-size: 32px;
-    line-height: 1.1;
-    letter-spacing: 0.02em;
+.game-title {
+    margin: 0 0 22px 0;
+    font-family: "Google Sans", Arial, sans-serif;
+    font-size: clamp(28px, 2.2vw, 40px);
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    text-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.title-uno {
+    color: #BD2222;
+}
+
+.title-ludo {
+    color: #4979E0;
 }
 
 .right-panel h2,
@@ -249,11 +295,13 @@ body {
 }
 
 button {
+    font-family: "Google Sans", Arial, sans-serif;
     padding: 10px 12px;
     border: 0;
     border-radius: 10px;
     background: #2563eb;
     color: white;
+    font-size: 16px;
     font-weight: 700;
     cursor: pointer;
     transition:
@@ -486,6 +534,160 @@ button:active {
         max-height: 78vh;
     }
 }
+
+.right-button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 26px;
+}
+
+.right-button-group button {
+    font-family: "Google Sans", Arial, sans-serif;
+    width: 100%;
+    min-height: 54px;
+    padding: 14px 18px;
+    border-radius: 14px;
+
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.log-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba(10, 29, 66, 0.96);
+    backdrop-filter: blur(8px);
+}
+
+.log-overlay.hidden {
+    display: none;
+}
+
+.log-modal {
+    width: min(760px, 88vw);
+    max-height: 82vh;
+
+    padding: 28px;
+
+    background: rgba(15, 23, 42, 0.96);
+    border: 1px solid rgba(96, 165, 250, 0.65);
+    border-radius: 22px;
+
+    box-shadow:
+        0 0 0 2px rgba(96, 165, 250, 0.18),
+        0 24px 70px rgba(0, 0, 0, 0.5);
+
+    overflow: hidden;
+}
+
+.log-modal h2 {
+    margin: 0 0 18px 0;
+    font-size: 32px;
+    line-height: 1;
+}
+
+.log-overlay-list {
+    max-height: calc(82vh - 110px);
+    margin: 0;
+    padding-left: 28px;
+    padding-right: 8px;
+
+    overflow-y: auto;
+
+    font-size: 17px;
+    line-height: 1.55;
+}
+
+.log-overlay-list li {
+    margin-bottom: 10px;
+}
+
+.log-close {
+    position: fixed;
+    top: 22px;
+    right: 28px;
+    z-index: 10001;
+
+    width: 52px;
+    height: 52px;
+
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+
+    background: rgba(15, 23, 42, 0.85);
+    color: white;
+
+    font-size: 36px;
+    line-height: 1;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.log-close:hover {
+    background: rgba(239, 68, 68, 0.9);
+    transform: scale(1.06);
+}
+
+.played-card-panel {
+    width: 100%;
+    margin-top: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+#current-player {
+    margin: 0 0 14px 0;
+    font-size: clamp(14px, 1.1vw, 18px);
+    font-weight: 500;
+    color: #dbeafe;
+}
+
+#played-card-title {
+    width: 100%;
+    margin: 0 0 14px 0;
+    font-size: clamp(20px, 1.8vw, 30px);
+    line-height: 1.08;
+    font-weight: 700;
+    color: #f8fafc;
+    overflow-wrap: break-word;
+}
+
+.played-card-image {
+    width: min(72%, 170px);
+    max-width: 100%;
+    height: auto;
+    align-self: center;
+    border-radius: 14px;
+    filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.45));
+}
+
+#action-message {
+    margin-top: 22px;
+    min-height: 38px;
+    color: #dbeafe;
+    font-size: 14px;
+    line-height: 1.35;
+}
+
+
+
+button,
+input,
+select,
+textarea {
+    font-family: "Google Sans", Arial, sans-serif;
+}
+
 
 
 /* Responsive */

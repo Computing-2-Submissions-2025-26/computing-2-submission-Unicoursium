@@ -109,7 +109,6 @@ UnoludoBoard.track_positions = Object.freeze([
  */
 UnoludoBoard.home_positions = Object.freeze({
     blue: Object.freeze([
-        Object.freeze({x: 49.72, y: 93.72}),
         Object.freeze({x: 49.72, y: 88.39}),
         Object.freeze({x: 49.86, y: 84.04}),
         Object.freeze({x: 49.72, y: 79.55}),
@@ -119,7 +118,6 @@ UnoludoBoard.home_positions = Object.freeze({
         Object.freeze({x: 49.86, y: 63})
     ]),
     green: Object.freeze([
-        Object.freeze({x: 6.23, y: 50.09}),
         Object.freeze({x: 11.98, y: 50.09}),
         Object.freeze({x: 16.05, y: 49.95}),
         Object.freeze({x: 20.26, y: 49.81}),
@@ -129,7 +127,6 @@ UnoludoBoard.home_positions = Object.freeze({
         Object.freeze({x: 37.09, y: 50.09})
     ]),
     red: Object.freeze([
-        Object.freeze({x: 49.86, y: 6.17}),
         Object.freeze({x: 49.72, y: 11.79}),
         Object.freeze({x: 49.72, y: 15.99}),
         Object.freeze({x: 49.58, y: 20.06}),
@@ -139,7 +136,6 @@ UnoludoBoard.home_positions = Object.freeze({
         Object.freeze({x: 49.86, y: 37.18})
     ]),
     yellow: Object.freeze([
-        Object.freeze({x: 93.78, y: 50.09}),
         Object.freeze({x: 88.16, y: 49.95}),
         Object.freeze({x: 83.81, y: 49.95}),
         Object.freeze({x: 79.6, y: 49.95}),

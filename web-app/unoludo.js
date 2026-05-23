@@ -458,6 +458,8 @@ const sorted_hand = function (hand) {
     return Object.freeze(cards);
 };
 
+Unoludo.sorted_hand = sorted_hand;
+
 /**
  * Create a new initial game state.
  *
@@ -713,7 +715,7 @@ Unoludo.track_length = 80;
  * @memberof Unoludo
  * @readonly
  */
-Unoludo.home_lane_length = 8;
+Unoludo.home_lane_length = 7;
 
 Unoludo.start_positions = Object.freeze({
     blue: 0,
@@ -1239,19 +1241,13 @@ const wrapped_track_position = function (position) {
 };
 
 const has_passed_home_entry = function (start_position, steps, entry_position) {
-    let distance_to_entry;
-
-    if (steps <= 0) {
-        return false;
-    }
-
-    distance_to_entry = (
+    const distance_to_entry = (
         (entry_position - start_position + Unoludo.track_length) %
         Unoludo.track_length
     );
 
-    if (distance_to_entry === 0) {
-        distance_to_entry = Unoludo.track_length;
+    if (steps <= 0) {
+        return false;
     }
 
     return steps > distance_to_entry;
@@ -1273,10 +1269,6 @@ const move_active_plane = function (plane, steps, colour) {
                 (entry_position - plane.position + Unoludo.track_length) %
                 Unoludo.track_length
             );
-
-            if (distance_to_entry === 0) {
-                distance_to_entry = Unoludo.track_length;
-            }
 
             home_position = steps - distance_to_entry - 1;
 
