@@ -295,6 +295,12 @@ const reset_draw_streak = function (player_id) {
     draw_streaks[player_id] = 0;
 };
 
+const has_no_planes_on_track = function (player) {
+    return player.planes.every(function (plane) {
+        return plane.status !== "track";
+    });
+};
+
 const check_draw_streak_p6 = function (player_id) {
     if (draw_streaks[player_id] === 3) {
         draw_streaks[player_id] = 0;
@@ -1657,7 +1663,7 @@ const cpu_take_turn = function () {
         reset_draw_streak(player.id);
     }
 
-    if (check_draw_streak_p6(player.id)) {
+    if (check_draw_streak_p6(player.id) && has_no_planes_on_track(player)) {
         const p6_card = Unoludo.create_reward_card(6);
         const new_players = next_state.players.map(function (p, i) {
             if (i === player.id) {
@@ -2682,7 +2688,7 @@ const render_hand = function () {
                     reset_draw_streak(player.id);
                 }
 
-                if (check_draw_streak_p6(player.id)) {
+                if (check_draw_streak_p6(player.id) && has_no_planes_on_track(player)) {
                     const p6_card = Unoludo.create_reward_card(6);
                     const new_players = next_state.players.map(function (p, i) {
                         if (i === player.id) {
@@ -2871,7 +2877,7 @@ document.getElementById("draw-end-turn").addEventListener("click", function () {
             reset_draw_streak(player.id);
         }
 
-        if (check_draw_streak_p6(player.id)) {
+        if (check_draw_streak_p6(player.id) && has_no_planes_on_track(player)) {
             const p6_card = Unoludo.create_reward_card(6);
             const new_players = next_state.players.map(function (p, i) {
                 if (i === player.id) {
