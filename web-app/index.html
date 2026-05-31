@@ -11,17 +11,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Unoludo</title>
+    <title>Unoludo 2.0</title>
     <link rel="stylesheet" href="./default.css">
 </head>
 <body>
     <main class="game-layout">
         <aside class="left-panel">
-            <h1 class="game-title">
-                <span class="title-uno">UNO</span><span class="title-ludo">LUDO</span>
-            </h1>
-
-            <p id="current-player">Current Player: Player</p>
+            <div class="game-title-wrap">
+                <h1 class="game-title">
+                    <span class="title-uno">UNO</span><span class="title-ludo">LUDO</span>
+                </h1>
+                <span class="version-badge">v2.0</span>
+            </div>
 
             <div class="played-card-panel">
                 <h2 id="played-card-title">Player Played:</h2>
@@ -32,7 +33,12 @@
         </aside>
 
         <section class="board-panel">
+            <div class="turn-indicator" aria-label="Turn indicator">
+                <span class="turn-indicator-label">Player's Turn</span>
+
+            </div>
         <div class="board-wrapper" id="board-wrapper">
+            <div id="particle-canvas" aria-hidden="true"></div>
             <img class="board-image" src="./assets/img/Unoludo_Board.png" alt="Unoludo board">
             <div id="discard-layer"></div>
             <div id="piece-layer"></div>
@@ -40,14 +46,13 @@
         </section>
 
         <aside class="right-panel">
-            <h2>Game Info</h2>
-            <p id="draw-count">Draw Pile:</p>
 
             <div class="right-button-group">
                 <button id="reset-demo">Restart</button>
                 <button id="debug-move">Move</button>
                 <button id="give-card">Give</button>
                 <button id="draw-end-turn">Draw & End Turn</button>
+                <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true">Sound On</button>
 
                 <!-- Temporarily disabled -->
                 <!-- <button id="cancel-action">Cancel Selection</button> -->
