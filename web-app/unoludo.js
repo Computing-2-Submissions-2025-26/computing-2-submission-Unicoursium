@@ -1136,6 +1136,10 @@ const commit_played_card = function (
         log: Object.freeze(state.log.concat([message]))
     });
 
+    if (new_state.winner !== state.winner) {
+        return new_state;
+    }
+
     return grant_empty_hand_bonus(new_state, updated_player.id);
 };
 
@@ -1207,7 +1211,7 @@ Unoludo.play_reward_card = function (
 
     state_after_card = Object.freeze({
         draw_pile: state.draw_pile,
-        discard_pile: state.discard_pile,
+        discard_pile: Object.freeze(state.discard_pile.concat([card])),
         players: replace_player(
             state.players,
             player.id,
@@ -1493,11 +1497,15 @@ Unoludo.play_zero_card = function (state, card_id, plane_index) {
 
     plane = player.planes[plane_index];
 
-    if (plane.frozen) {
+    if (plane === undefined) {
         return undefined;
     }
 
     if (plane.status === "base" || plane.status === "finished") {
+        return undefined;
+    }
+
+    if (plane.frozen) {
         return undefined;
     }
 
@@ -1562,6 +1570,10 @@ Unoludo.play_number_card = function (state, card_id, plane_index) {
     }
 
     plane = player.planes[plane_index];
+
+    if (plane === undefined) {
+        return undefined;
+    }
 
     if (plane.frozen) {
         return undefined;
@@ -1676,15 +1688,16 @@ Unoludo.play_draw2_card = function (state, card_id) {
 /**
  * Play a Skip card.
  *
- * Skip freezes one active plane belonging to the next player. The next player
- * can still take a turn, but the frozen plane cannot move until that player's
- * turn ends.
+ * Skip freezes one active plane belonging to a target opponent. The target
+ * player can still take a turn, but the frozen plane cannot move until that
+ * player's turn ends.
  *
  * @memberof Unoludo
  * @function
  * @param {Unoludo.State} state The current game state.
  * @param {string} card_id The Skip card id.
- * @param {Unoludo.Colour} target_plane_colour The next player's plane to freeze.
+ * @param {number} target_player_id The target opponent player id.
+ * @param {number} target_plane_index The index of the target plane to freeze (0-3).
  * @returns {(Unoludo.State | undefined)} The updated state, or undefined.
  */
 Unoludo.play_skip_card = function (
@@ -1780,12 +1793,13 @@ Unoludo.play_skip_card = function (
 /**
  * Move an active plane backwards.
  *
- * Reverse cannot send a plane back to base. If the movement would go before
- * the start of the main track, the plane stops at track position 0.
+ * If the backward movement would go before the start of the main track
+ * (i.e. past the plane's start position), the plane is sent back to base.
  *
  * @function
  * @param {Unoludo.Plane} plane The plane to move backwards.
  * @param {number} steps The number of spaces to move backwards.
+ * @param {Unoludo.Colour} colour The colour of the plane (for position calculation).
  * @returns {(Unoludo.Plane | undefined)} The moved plane, or undefined.
  */
 const move_plane_backward = function (plane, steps, colour) {
@@ -1881,7 +1895,7 @@ const move_plane_backward = function (plane, steps, colour) {
  * @param {string} reverse_card_id The Reverse card id.
  * @param {string} number_card_id The same-colour number card id.
  * @param {number} target_player_id The target opponent player id.
- * @param {Unoludo.Colour} target_plane_colour The target plane colour.
+ * @param {number} target_plane_index The index of the target plane to move backwards (0-3).
  * @returns {(Unoludo.State | undefined)} The updated state, or undefined.
  */
 Unoludo.play_reverse_combo = function (
@@ -2074,13 +2088,13 @@ Unoludo.play_wild_combo = function (
 
     target_plane = target_player.planes[target_plane_index];
 
-    if (target_plane.frozen) {
+    if (target_plane === undefined) {
         return undefined;
     }
 
-    if (target_plane === undefined) {
-            return undefined;
-        }
+    if (target_plane.frozen) {
+        return undefined;
+    }
 
     if (target_plane.status === "base") {
         if (number_card.value !== 6) {
@@ -2284,7 +2298,7 @@ Unoludo.play_wild4_card = function (state, card_id, option, chosen_colour) {
         }
     });
 
-    return state_after_card;
+    return grant_empty_hand_bonus(state_after_card, player.id);
 };
 
 

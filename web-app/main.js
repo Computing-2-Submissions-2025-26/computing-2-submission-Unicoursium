@@ -915,18 +915,23 @@ const play_selected_card_without_plane = async function () {
         return;
     }
 
-    if (!Unoludo.can_play_card(card, state)) {
-        action_message.textContent = "That card cannot be played on the current discard.";
-        return;
-    }
-
     if (card.type === "reverse") {
+        const reverse_is_playable = Unoludo.can_play_card(card, state);
         const has_matching_number = player.hand.some(function (hand_card) {
             return (
                 hand_card.id !== card.id &&
                 hand_card.type === "number" &&
                 hand_card.value > 0 &&
                 hand_card.colour === card.colour
+            );
+        });
+        const has_playable_matching_number = player.hand.some(function (hand_card) {
+            return (
+                hand_card.id !== card.id &&
+                hand_card.type === "number" &&
+                hand_card.value > 0 &&
+                hand_card.colour === card.colour &&
+                Unoludo.can_play_card(hand_card, state)
             );
         });
 
@@ -937,9 +942,19 @@ const play_selected_card_without_plane = async function () {
             return;
         }
 
+        if (!reverse_is_playable && !has_playable_matching_number) {
+            action_message.textContent = "That Reverse combo cannot be played on the current discard.";
+            return;
+        }
+
         target_mode = "reverse_number";
         combo_card_id = undefined;
         action_message.textContent = "Select a same-colour number card for Reverse.";
+        return;
+    }
+
+    if (!Unoludo.can_play_card(card, state)) {
+        action_message.textContent = "That card cannot be played on the current discard.";
         return;
     }
     
