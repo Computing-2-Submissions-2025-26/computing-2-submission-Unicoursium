@@ -5,14 +5,7 @@ import UnoludoAssets from "./assets.js";
 
 /*global document, window*/
 
-let state = Unoludo.create_initial_state([
-    "Player",
-    "CPU Green",
-    "CPU Red",
-    "CPU Yellow"
-], {
-    shuffle: true
-});
+let state = undefined;
 let rendered_discard_card_id = undefined;
 let selected_card_id = undefined;
 let combo_card_id = undefined;
@@ -20,17 +13,46 @@ let target_mode = undefined;
 let cpu_timer = undefined;
 let winner_popup_shown = false;
 let sound_enabled = true;
-let cpu_difficulty = "medium";
 let audio_context = undefined;
 let pending_render_effects = undefined;
-let last_action_was_draw = false;
+let gameMode = "none";
+let myPlayerIndex = 0;
+let mpStateSynced = false;
+let multiplayerCpuAuthorityIndex = 0;
 const draw_streaks = Object.create(null);
 const CPU_TURN_DELAY = 1600;
-const CPU_DIFFICULTIES = Object.freeze(["easy", "medium", "hard"]);
 const piece_elements = Object.create(null);
 const previous_piece_snapshots = Object.create(null);
 const draw_end_turn_button = document.getElementById("draw-end-turn");
 const sound_toggle_button = document.getElementById("sound-toggle");
+
+const initGameState = function (playerNames, options) {
+    state = Unoludo.create_initial_state(playerNames, options || {});
+
+    if (options !== undefined && options.playerKinds !== undefined) {
+        state = Object.freeze({
+            draw_pile: state.draw_pile,
+            discard_pile: state.discard_pile,
+            players: Object.freeze(state.players.map(function (player, index) {
+                return Object.freeze({
+                    id: player.id,
+                    name: player.name,
+                    colour: player.colour,
+                    kind: options.playerKinds[index] || player.kind,
+                    hand: player.hand,
+                    planes: player.planes
+                });
+            })),
+            current_player: state.current_player,
+            active_colour: state.active_colour,
+            winner: state.winner,
+            player_moods: state.player_moods,
+            log: state.log
+        });
+    }
+
+    return state;
+};
 
 const audio_context_class = window.AudioContext || window.webkitAudioContext;
 
@@ -236,42 +258,6 @@ if (sound_toggle_button !== null) {
     });
 }
 
-const create_cpu_difficulty_button = function () {
-    const button_group = document.querySelector(".right-button-group");
-    const button = document.createElement("button");
-
-    if (button_group === null) {
-        return;
-    }
-
-    button.id = "cpu-difficulty";
-    button.type = "button";
-    button.textContent = "CPU: Medium";
-    button.setAttribute("aria-label", "CPU difficulty: medium");
-
-    button.addEventListener("click", function () {
-        const next_index = (
-            CPU_DIFFICULTIES.indexOf(cpu_difficulty) + 1
-        ) % CPU_DIFFICULTIES.length;
-
-        cpu_difficulty = CPU_DIFFICULTIES[next_index];
-        button.textContent = (
-            "CPU: " +
-            cpu_difficulty.charAt(0).toUpperCase() +
-            cpu_difficulty.slice(1)
-        );
-        button.setAttribute("aria-label", "CPU difficulty: " + cpu_difficulty);
-    });
-
-    if (sound_toggle_button !== null) {
-        sound_toggle_button.insertAdjacentElement("afterend", button);
-        return;
-    }
-
-    button_group.appendChild(button);
-};
-
-create_cpu_difficulty_button();
 const clear_selection = function () {
     selected_card_id = undefined;
     combo_card_id = undefined;
@@ -314,6 +300,8 @@ const colour_choice_buttons = document.querySelectorAll(".colour-choice");
 const wild4_option_overlay = document.getElementById("wild4-option-overlay");
 const wild4_draw4_choice = document.getElementById("wild4-draw4-choice");
 const wild4_move_choice = document.getElementById("wild4-move-choice");
+const reverse_step_overlay = document.getElementById("reverse-step-overlay");
+const reverse_step_buttons = document.querySelectorAll("[data-reverse-step]");
 const winner_overlay = document.getElementById("winner-overlay");
 const winner_name = document.getElementById("winner-name");
 const winner_restart_button = document.getElementById("winner-restart");
@@ -336,6 +324,46 @@ const player_colour_hex = function (colour) {
 
     return "#f8fafc";
 };
+
+const colour_label = function (colour) {
+    if (typeof colour !== "string" || colour.length === 0) {
+        return "Any";
+    }
+
+    return colour.charAt(0).toUpperCase() + colour.slice(1);
+};
+
+const card_match_label = function (card) {
+    if (card.type === "number") {
+        return String(card.value);
+    }
+
+    if (card.type === "skip") {
+        return "Skip";
+    }
+
+    if (card.type === "reverse") {
+        return "Reverse";
+    }
+
+    if (card.type === "draw2") {
+        return "+2";
+    }
+
+    if (card.type === "wild") {
+        return "Wild";
+    }
+
+    if (card.type === "wild4") {
+        return "+4";
+    }
+
+    if (card.type === "reward") {
+        return String(card.value);
+    }
+
+    return card.type;
+};
 const show_winner_popup = function () {
     let winner;
 
@@ -357,6 +385,11 @@ const hide_winner_popup = function () {
 };
 const played_card_title = document.getElementById("played-card-title");
 const played_card_image = document.getElementById("played-card-image");
+const player_status_panel = document.getElementById("player-status-panel");
+const hand_play_hint = document.getElementById("hand-play-hint");
+const hand_play_colour_swatch = document.getElementById("hand-play-colour-swatch");
+const hand_play_colour = document.getElementById("hand-play-colour");
+const hand_play_type = document.getElementById("hand-play-type");
 const open_log_button = document.getElementById("open-log");
 const log_overlay = document.getElementById("log-overlay");
 const close_log_button = document.getElementById("close-log");
@@ -422,6 +455,15 @@ const debug_plane_from_input = function (position_input) {
         });
     }
 
+    if (trimmed === "gate") {
+        return Object.freeze({
+            status: "gate",
+            position: -1,
+            shielded: false,
+            frozen: false
+        });
+    }
+
     if (trimmed === "finished") {
         return Object.freeze({
             status: "finished",
@@ -472,58 +514,61 @@ const debug_plane_from_input = function (position_input) {
     return undefined;
 };
 
-debug_move_button.addEventListener("click", function () {
-    const colour = window.prompt(
-        "Choose plane colour: blue, green, red, yellow"
-    );
+if (debug_move_button !== null) {
+    debug_move_button.addEventListener("click", function () {
+        if (gameMode === "multi") return;
+        const colour = window.prompt(
+            "Choose plane colour: blue, green, red, yellow"
+        );
 
-    const plane_index_text = window.prompt(
-        "Choose plane index: 0, 1, 2, or 3"
-    );
+        const plane_index_text = window.prompt(
+            "Choose plane index: 0, 1, 2, or 3"
+        );
 
-    const position_text = window.prompt(
-        "Enter position: number, track:number, home:number, base, or finished"
-    );
+        const position_text = window.prompt(
+            "Enter position: number, track:number, home:number, gate, base, or finished"
+        );
 
-    const player_id = player_id_by_colour(
-        colour === null
-        ? ""
-        : colour.trim().toLowerCase()
-    );
+        const player_id = player_id_by_colour(
+            colour === null
+            ? ""
+            : colour.trim().toLowerCase()
+        );
 
-    const plane_index = Number(plane_index_text);
-    const new_plane = (
-        position_text === null
-        ? undefined
-        : debug_plane_from_input(position_text)
-    );
+        const plane_index = Number(plane_index_text);
+        const new_plane = (
+            position_text === null
+            ? undefined
+            : debug_plane_from_input(position_text)
+        );
 
-    if (
-        player_id === undefined ||
-        !Number.isInteger(plane_index) ||
-        plane_index < 0 ||
-        plane_index > 3 ||
-        new_plane === undefined
-    ) {
-        action_message.textContent = "Debug move failed: invalid input.";
-        return;
-    }
+        if (
+            player_id === undefined ||
+            !Number.isInteger(plane_index) ||
+            plane_index < 0 ||
+            plane_index > 3 ||
+            new_plane === undefined
+        ) {
+            action_message.textContent = "Debug move failed: invalid input.";
+            return;
+        }
 
-    const next_state = Unoludo.update_plane(
-        state,
-        player_id,
-        plane_index,
-        new_plane
-    );
+        const next_state = Unoludo.update_plane(
+            state,
+            player_id,
+            plane_index,
+            new_plane
+        );
 
-    prepare_render_effects(state, next_state, {});
-    state = next_state;
-    clear_selection();
-    action_message.textContent = (
-        "Debug moved " + colour + " plane " + plane_index + "."
-    );
-    render();
-});
+        prepare_render_effects(state, next_state, {});
+        state = next_state;
+        clear_selection();
+        action_message.textContent = (
+            "Debug moved " + colour + " plane " + plane_index + "."
+        );
+        render();
+    });
+}
 
 const colour_from_card_code = function (letter) {
     if (letter === "B") {
@@ -644,32 +689,35 @@ const give_card_to_current_player = function (card) {
     );
 };
 
-give_card_button.addEventListener("click", function () {
-    const code = window.prompt(
-        "Enter card code, e.g. B3, YR, GS, RP, PW, P4, P7, P8, P9"
-    );
+if (give_card_button !== null) {
+    give_card_button.addEventListener("click", function () {
+        if (gameMode === "multi") return;
+        const code = window.prompt(
+            "Enter card code, e.g. B3, YR, GS, RP, PW, P4, P7, P8, P9"
+        );
 
-    let card;
+        let card;
 
-    if (code === null) {
-        return;
-    }
+        if (code === null) {
+            return;
+        }
 
-    card = create_debug_card_from_code(code);
+        card = create_debug_card_from_code(code);
 
-    if (card === undefined) {
-        action_message.textContent = "Give card failed: invalid card code.";
-        return;
-    }
+        if (card === undefined) {
+            action_message.textContent = "Give card failed: invalid card code.";
+            return;
+        }
 
-    const before_state = state;
+        const before_state = state;
 
-    give_card_to_current_player(card);
-    prepare_render_effects(before_state, state, {});
-    clear_selection();
-    action_message.textContent = "Gave card " + code.toUpperCase() + " to current player.";
-    render();
-});
+        give_card_to_current_player(card);
+        prepare_render_effects(before_state, state, {});
+        clear_selection();
+        action_message.textContent = "Gave card " + code.toUpperCase() + " to current player.";
+        render();
+    });
+}
 
 const render_help_page = function () {
     help_image.src = help_pages[help_page_index];
@@ -713,7 +761,11 @@ open_log_button.addEventListener("click", open_log);
 close_log_button.addEventListener("click", close_log);
 
 const is_active_plane = function (plane) {
-    return plane.status === "track" || plane.status === "home";
+    return (
+        plane.status === "gate" ||
+        plane.status === "track" ||
+        plane.status === "home"
+    );
 };
 
 const track_distance = function (from_position, to_position) {
@@ -721,6 +773,20 @@ const track_distance = function (from_position, to_position) {
         (to_position - from_position + Unoludo.track_length) %
         Unoludo.track_length
     );
+};
+
+const projected_track_position = function (player, from_position, steps) {
+    const raw_position = (
+        (from_position + steps + Unoludo.track_length) %
+        Unoludo.track_length
+    );
+    const jump = Unoludo.jump_positions[player.colour];
+
+    if (jump !== undefined && raw_position === jump.from) {
+        return jump.to;
+    }
+
+    return raw_position;
 };
 
 const plane_progress = function (player, plane) {
@@ -734,11 +800,15 @@ const plane_progress = function (player, plane) {
 
     if (plane.status === "home") {
         entry_distance = track_distance(start_position, entry_position);
-        return entry_distance + 1 + plane.position;
+        return entry_distance + 2 + plane.position;
     }
 
     if (plane.status === "track") {
-        return track_distance(start_position, plane.position);
+        return track_distance(start_position, plane.position) + 1;
+    }
+
+    if (plane.status === "gate") {
+        return 0;
     }
 
     return -1;
@@ -755,6 +825,7 @@ const distance_to_home = function (player, plane) {
 
     if (plane.status === "track") {
         return (
+            1 +
             track_distance(
                 plane.position,
                 Unoludo.home_entry_positions[player.colour]
@@ -779,6 +850,7 @@ const count_active_planes = function (player) {
 };
 
 const can_capture_plane_with_steps = function (
+    attacker,
     attacker_plane,
     target_plane,
     steps
@@ -792,7 +864,11 @@ const can_capture_plane_with_steps = function (
         return false;
     }
 
-    return track_distance(attacker_plane.position, target_plane.position) === steps;
+    return projected_track_position(
+        attacker,
+        attacker_plane.position,
+        steps
+    ) === target_plane.position;
 };
 
 const player_can_capture_plane = function (
@@ -816,6 +892,7 @@ const player_can_capture_plane = function (
 
         return attacker.planes.some(function (attacker_plane) {
             return can_capture_plane_with_steps(
+                attacker,
                 attacker_plane,
                 target_plane,
                 steps
@@ -1047,8 +1124,13 @@ const score_cpu_move = function (before_state, move) {
                 before_plane.status !== "finished" &&
                 after_plane.status === "base"
             ) {
+                const capture_score = 15 + Math.max(0, 12 - close_to_home);
                 details.captures += 1;
-                score += 15 + Math.max(0, 12 - close_to_home);
+                score += (
+                    target_player.kind === "human" && close_to_home <= 8
+                    ? Math.max(6, Math.floor(capture_score * 0.35))
+                    : capture_score
+                );
             }
 
             if (
@@ -1075,7 +1157,7 @@ const score_cpu_move = function (before_state, move) {
         const after_progress = plane_progress(player, after_plane);
         const gained = Math.max(0, after_progress - before_progress);
 
-        if (before_plane.status === "base" && after_plane.status === "track") {
+        if (before_plane.status === "base" && after_plane.status === "gate") {
             details.launched = true;
             score += 8;
         }
@@ -1355,28 +1437,23 @@ const find_cpu_reverse_move = function (cpu_state, player) {
             return false;
         }
 
-        return player.hand.some(function (number_card) {
-            if (
-                number_card.type !== "number" ||
-                number_card.value < 1 ||
-                number_card.value > 6 ||
-                number_card.colour !== reverse_card.colour
-            ) {
-                return false;
-            }
+        if (!Unoludo.can_play_card(reverse_card, cpu_state)) {
+            return false;
+        }
 
+        [1, 2, 3, 4, 5, 6].forEach(function (steps) {
             cpu_state.players.forEach(function (target_player) {
                 if (target_player.id === player.id) {
-                    return false;
+                    return;
                 }
 
                 target_player.planes.forEach(function (plane, plane_index) {
-                    const next_state = Unoludo.play_reverse_combo(
+                    const next_state = Unoludo.play_reverse_card(
                         cpu_state,
                         reverse_card.id,
-                        number_card.id,
                         target_player.id,
-                        plane_index
+                        plane_index,
+                        steps
                     );
 
                     if (next_state !== undefined) {
@@ -1385,10 +1462,10 @@ const find_cpu_reverse_move = function (cpu_state, player) {
                             player,
                             next_state,
                             "reverse",
-                            player.name + " played Reverse combo",
+                            player.name + " played Reverse",
                             {
                                 card: reverse_card,
-                                number_card: number_card,
+                                steps: steps,
                                 target_player_id: target_player.id,
                                 plane_index: plane_index
                             }
@@ -1396,8 +1473,6 @@ const find_cpu_reverse_move = function (cpu_state, player) {
                     }
                 });
             });
-
-            return false;
         });
 
         return false;
@@ -1408,6 +1483,17 @@ const find_cpu_reverse_move = function (cpu_state, player) {
 
 const find_cpu_wild_move = function (cpu_state, player) {
     const moves = [];
+    const active_plane_indexes = player.planes
+        .map(function (plane, plane_index) {
+            return is_active_plane(plane) ? plane_index : undefined;
+        })
+        .filter(function (plane_index) {
+            return plane_index !== undefined;
+        });
+
+    if (active_plane_indexes.length === 0) {
+        return moves;
+    }
 
     player.hand.some(function (wild_card) {
         if (
@@ -1426,33 +1512,31 @@ const find_cpu_wild_move = function (cpu_state, player) {
                 return false;
             }
 
-            cpu_state.players.forEach(function (target_player) {
-                target_player.planes.forEach(function (plane, plane_index) {
-                    const next_state = Unoludo.play_wild_combo(
-                        cpu_state,
-                        wild_card.id,
-                        number_card.id,
-                        target_player.id,
-                        plane_index
-                    );
+            active_plane_indexes.forEach(function (plane_index) {
+                const next_state = Unoludo.play_wild_combo(
+                    cpu_state,
+                    wild_card.id,
+                    number_card.id,
+                    player.id,
+                    plane_index
+                );
 
-                    if (next_state !== undefined) {
-                        moves.push(create_cpu_move(
-                            cpu_state,
-                            player,
-                            next_state,
-                            "wild",
-                            player.name + " played Wild combo",
-                            {
-                                card: wild_card,
-                                number_card: number_card,
-                                target_player_id: target_player.id,
-                                plane_index: plane_index,
-                                chosen_colour: number_card.colour
-                            }
-                        ));
-                    }
-                });
+                if (next_state !== undefined) {
+                    moves.push(create_cpu_move(
+                        cpu_state,
+                        player,
+                        next_state,
+                        "wild",
+                        player.name + " played Wild combo",
+                        {
+                            card: wild_card,
+                            number_card: number_card,
+                            target_player_id: player.id,
+                            plane_index: plane_index,
+                            chosen_colour: number_card.colour
+                        }
+                    ));
+                }
             });
 
             return false;
@@ -1511,13 +1595,24 @@ const find_cpu_wild4_move = function (cpu_state, player) {
 
 const find_cpu_reward_move = function (cpu_state, player) {
     const moves = [];
+    const active_plane_indexes = player.planes
+        .map(function (plane, plane_index) {
+            return is_active_plane(plane) ? plane_index : undefined;
+        })
+        .filter(function (plane_index) {
+            return plane_index !== undefined;
+        });
+
+    if (active_plane_indexes.length === 0) {
+        return moves;
+    }
 
     player.hand.some(function (card) {
         if (card.type !== "reward") {
             return false;
         }
 
-        player.planes.forEach(function (plane, plane_index) {
+        active_plane_indexes.forEach(function (plane_index) {
             const next_state = Unoludo.play_reward_card(
                 cpu_state,
                 card.id,
@@ -1536,33 +1631,6 @@ const find_cpu_reward_move = function (cpu_state, player) {
                     {card: card, target_player_id: player.id, plane_index: plane_index}
                 ));
             }
-        });
-
-        cpu_state.players.forEach(function (target_player) {
-            target_player.planes.forEach(function (plane, plane_index) {
-                const next_state = Unoludo.play_reward_card(
-                    cpu_state,
-                    card.id,
-                    target_player.id,
-                    plane_index,
-                    choose_colour_for_cpu(player, cpu_state)
-                );
-
-                if (next_state !== undefined) {
-                    moves.push(create_cpu_move(
-                        cpu_state,
-                        player,
-                        next_state,
-                        "reward",
-                        player.name + " played reward " + card.value,
-                        {
-                            card: card,
-                            target_player_id: target_player.id,
-                            plane_index: plane_index
-                        }
-                    ));
-                }
-            });
         });
 
         return false;
@@ -1589,24 +1657,12 @@ const select_cpu_move = function (moves) {
         return undefined;
     }
 
-    if (cpu_difficulty === "easy") {
-        return moves[Math.floor(Math.random() * moves.length)];
-    }
-
     return moves.reduce(function (best_move, move) {
-        const move_score = (
-            cpu_difficulty === "medium"
-            ? move.score * (0.8 + Math.random() * 0.4)
-            : move.score
-        );
+        const move_score = move.score * (0.8 + Math.random() * 0.4);
         const best_score = (
             best_move.adjusted_score !== undefined
             ? best_move.adjusted_score
-            : (
-                cpu_difficulty === "medium"
-                ? best_move.score * (0.8 + Math.random() * 0.4)
-                : best_move.score
-            )
+            : best_move.score * (0.8 + Math.random() * 0.4)
         );
 
         move.adjusted_score = move_score;
@@ -1686,6 +1742,7 @@ const cpu_take_turn = function () {
             current_player: next_state.current_player,
             active_colour: next_state.active_colour,
             winner: next_state.winner,
+            player_moods: next_state.player_moods,
             log: Object.freeze(next_state.log.concat([
                 player.name + " received a P6 reward card (6th draw streak)!"
             ]))
@@ -1695,12 +1752,37 @@ const cpu_take_turn = function () {
     }
 
     clear_selection();
-    last_action_was_draw = true;
     action_message.textContent = player.name + " drew one card and ended turn.";
     render();
 };
 
 const schedule_cpu_if_needed = function () {
+    // In multiplayer, the host is the single authority for CPU turns.
+    if (gameMode === "multi") {
+        const player = Unoludo.current_player(state);
+        if (Unoludo.is_ended(state)) return;
+        if (player.kind !== "cpu") return;
+        if (myPlayerIndex !== multiplayerCpuAuthorityIndex) return;
+        if (cpu_timer !== undefined) return;
+
+        action_message.textContent = player.name + " is thinking...";
+        hand_cards.classList.add("cpu-thinking");
+        hand_cards.style.filter = "drop-shadow(0 0 16px " + player_colour_hex(player.colour) + ")";
+        hand_cards.style.transition = "filter 220ms ease, transform 220ms ease";
+        hand_cards.style.transform = "translateY(-4px)";
+
+        cpu_timer = window.setTimeout(function () {
+            cpu_timer = undefined;
+            hand_cards.classList.remove("cpu-thinking");
+            hand_cards.style.filter = "";
+            hand_cards.style.transform = "";
+            cpu_take_turn();
+            // Sync the result to Firebase so the other player sees it
+            sync_multiplayer_state();
+        }, CPU_TURN_DELAY);
+        return;
+    }
+
     const player = Unoludo.current_player(state);
 
     if (Unoludo.is_ended(state)) {
@@ -1769,6 +1851,26 @@ const choose_wild4_option_with_modal = function () {
         };
 
         wild4_option_overlay.classList.remove("hidden");
+    });
+};
+
+const choose_reverse_steps_with_modal = function () {
+    return new Promise(function (resolve) {
+        const close_with_steps = function (steps) {
+            reverse_step_overlay.classList.add("hidden");
+            reverse_step_buttons.forEach(function (button) {
+                button.onclick = null;
+            });
+            resolve(steps);
+        };
+
+        reverse_step_buttons.forEach(function (button) {
+            button.onclick = function () {
+                close_with_steps(Number(button.dataset.reverseStep));
+            };
+        });
+
+        reverse_step_overlay.classList.remove("hidden");
     });
 };
 const piece_layer = document.getElementById("piece-layer");
@@ -1884,7 +1986,46 @@ const prepare_card_effects_from_next_state = function (next_state) {
     };
 };
 
-const finish_successful_action = function (next_state, message) {
+const sync_multiplayer_state = function () {
+    if (gameMode !== "multi") {
+        return Promise.resolve({committed: true});
+    }
+
+    return window.UnoludoMultiplayer.updateGameState(
+        state,
+        state.current_player
+    ).then(function (result) {
+        if (!result.committed) {
+            if (result.remoteState !== undefined) {
+                state = window.UnoludoMultiplayer.unflattenState(
+                    result.remoteState
+                );
+                mpStateSynced = true;
+                clear_selection();
+                render();
+            }
+
+            action_message.textContent = (
+                "Game state changed. Please try your move again."
+            );
+        }
+
+        return result;
+    }).catch(function () {
+        action_message.textContent = "Could not sync multiplayer state.";
+        return {committed: false};
+    });
+};
+
+const can_take_local_turn = function () {
+    return (
+        gameMode !== "multi" ||
+        (mpStateSynced === true &&
+            window.UnoludoMultiplayer.isMyTurn(state.current_player) === true)
+    );
+};
+
+const finish_successful_action = function (next_state, message, should_sync) {
     const final_state = Unoludo.end_turn(next_state);
     const player = Unoludo.current_player(state);
 
@@ -1897,7 +2038,11 @@ const finish_successful_action = function (next_state, message) {
     state = final_state;
     clear_selection();
     action_message.textContent = message;
+    if (should_sync !== false) {
+        sync_multiplayer_state();
+    }
     render();
+    return true;
 };
 
 const play_selected_card_without_plane = async function () {
@@ -1909,46 +2054,16 @@ const play_selected_card_without_plane = async function () {
         return;
     }
 
-    if (card.type === "reverse") {
-        const reverse_is_playable = Unoludo.can_play_card(card, state);
-        const has_matching_number = player.hand.some(function (hand_card) {
-            return (
-                hand_card.id !== card.id &&
-                hand_card.type === "number" &&
-                hand_card.value > 0 &&
-                hand_card.colour === card.colour
-            );
-        });
-        const has_playable_matching_number = player.hand.some(function (hand_card) {
-            return (
-                hand_card.id !== card.id &&
-                hand_card.type === "number" &&
-                hand_card.value > 0 &&
-                hand_card.colour === card.colour &&
-                Unoludo.can_play_card(hand_card, state)
-            );
-        });
-
-        if (!has_matching_number) {
-            clear_selection();
-            action_message.textContent = "Reverse needs a same-colour number card.";
-            render();
-            return;
-        }
-
-        if (!reverse_is_playable && !has_playable_matching_number) {
-            action_message.textContent = "That Reverse combo cannot be played on the current discard.";
-            return;
-        }
-
-        target_mode = "reverse_number";
-        combo_card_id = undefined;
-        action_message.textContent = "Select a same-colour number card for Reverse.";
+    if (!Unoludo.can_play_card(card, state)) {
+        action_message.textContent = "That card cannot be played on the current discard.";
         return;
     }
 
-    if (!Unoludo.can_play_card(card, state)) {
-        action_message.textContent = "That card cannot be played on the current discard.";
+    if (card.type === "reverse") {
+        target_mode = "reverse_target";
+        combo_card_id = undefined;
+        action_message.textContent = "Select an opponent plane to move backwards.";
+        render();
         return;
     }
     
@@ -1992,8 +2107,10 @@ const play_selected_card_without_plane = async function () {
 
         finish_successful_action(
             next_state,
-            "Played +2, drew two cards, and ended turn."
+            "Played +2, drew two cards, and ended turn.",
+            false
         );
+        return true;
     }
 
     if (card.type === "wild4") {
@@ -2012,16 +2129,15 @@ const play_selected_card_without_plane = async function () {
             return;
         }
 
-        finish_successful_action(
+        return finish_successful_action(
             next_state,
             (
                 option === "advance_all"
                 ? "Played Wild +4 and advanced all active planes."
                 : "Played Wild +4 and drew four cards."
-            )
+            ),
+            false
         );
-
-        return;
     }
 
     if (card.type === "skip") {
@@ -2120,13 +2236,14 @@ const play_skip_on_plane = function (target_player_id, plane_index) {
     );
 };
 
-const play_reverse_on_plane = function (target_player_id, plane_index) {
-    const next_state = Unoludo.play_reverse_combo(
+const play_reverse_on_plane = async function (target_player_id, plane_index) {
+    const steps = await choose_reverse_steps_with_modal();
+    const next_state = Unoludo.play_reverse_card(
         state,
         selected_card_id,
-        combo_card_id,
         target_player_id,
-        plane_index
+        plane_index,
+        steps
     );
 
     if (next_state === undefined) {
@@ -2138,7 +2255,7 @@ const play_reverse_on_plane = function (target_player_id, plane_index) {
     combo_card_id = undefined;
     finish_successful_action(
         next_state,
-        "Played Reverse combo and moved a plane backwards."
+        "Played Reverse and moved a plane backwards."
     );
 };
 
@@ -2167,6 +2284,10 @@ const play_wild_on_plane = function (target_player_id, plane_index) {
 const plane_position_key = function (player, plane, plane_index) {
     if (plane.status === "base") {
         return player.colour + "-base-" + plane_index;
+    }
+
+    if (plane.status === "gate") {
+        return player.colour + "-gate";
     }
 
     if (plane.status === "track") {
@@ -2417,7 +2538,8 @@ const render_piece = function (
     if (
         plane.status !== "finished" &&
         target_mode === "skip" &&
-        player.id !== state.current_player
+        player.id !== state.current_player &&
+        can_take_local_turn()
     ) {
         piece.className += " target-piece";
         piece.onclick = function () {
@@ -2426,7 +2548,8 @@ const render_piece = function (
     } else if (
         plane.status !== "finished" &&
         target_mode === "reverse_target" &&
-        player.id !== state.current_player
+        player.id !== state.current_player &&
+        can_take_local_turn()
     ) {
         piece.className += " target-piece";
         piece.onclick = function () {
@@ -2434,7 +2557,8 @@ const render_piece = function (
         };
     } else if (
         plane.status !== "finished" &&
-        target_mode === "wild_target"
+        target_mode === "wild_target" &&
+        can_take_local_turn()
     ) {
         piece.className += " target-piece";
         piece.onclick = function () {
@@ -2443,7 +2567,8 @@ const render_piece = function (
     } else if (
         plane.status !== "finished" &&
         target_mode === undefined &&
-        player.id === state.current_player
+        player.id === state.current_player &&
+        can_take_local_turn()
     ) {
         piece.className += " current-player-piece";
         piece.onclick = function () {
@@ -2451,7 +2576,8 @@ const render_piece = function (
         };
     } else if (
         plane.status !== "finished" &&
-        target_mode === "reward_target"
+        target_mode === "reward_target" &&
+        can_take_local_turn()
     ) {
         piece.className += " target-piece";
         piece.onclick = function () {
@@ -2590,14 +2716,38 @@ const render_pieces = function () {
 };
 
 const render_hand = function () {
-    const player = Unoludo.current_player(state);
+    const player = (gameMode === "multi")
+        ? state.players[myPlayerIndex]
+        : Unoludo.current_player(state);
 
     hand_cards.replaceChildren();
 
-    player.hand.forEach(function (card) {
+    if (gameMode !== "multi" && player.kind === "cpu") {
+        const hidden_notice = document.createElement("div");
+        const swatch = document.createElement("span");
+        const name = document.createElement("span");
+
+        hidden_notice.className = "hidden-hand-notice";
+        swatch.className = "hidden-hand-swatch";
+        swatch.style.background = player_colour_hex(player.colour);
+        name.className = "hidden-hand-name";
+        name.textContent = player.name + " is choosing a move";
+
+        hidden_notice.appendChild(swatch);
+        hidden_notice.appendChild(name);
+        hand_cards.appendChild(hidden_notice);
+        return;
+    }
+
+    const has_playable_card = player.hand.some(function (card) {
+        return Unoludo.can_play_card(card, state);
+    });
+
+    player.hand.forEach(function (card, card_index) {
         const image = document.createElement("img");
 
         image.className = "card-image";
+        image.style.setProperty("--card-order", String(card_index + 1));
 
         if (Unoludo.can_play_card(card, state)) {
             image.className += " playable-card";
@@ -2615,31 +2765,14 @@ const render_hand = function () {
         image.dataset.cardId = card.id;
 
         image.addEventListener("click", function () {
+            if (!can_take_local_turn()) {
+                return;
+            }
+
             const selected_card = Unoludo.card_in_hand(
                 Unoludo.current_player(state),
                 selected_card_id
             );
-
-            if (target_mode === "reverse_number") {
-                if (
-                    selected_card !== undefined &&
-                    card.type === "number" &&
-                    card.value > 0 &&
-                    card.colour === selected_card.colour
-                ) {
-                    combo_card_id = card.id;
-                    target_mode = "reverse_target";
-                    action_message.textContent = "Select an opponent plane to move backwards.";
-                    render();
-                    return;
-                }
-
-                clear_selection();
-                selected_card_id = card.id;
-                play_selected_card_without_plane().then(render);
-                render();
-                return;
-            }
 
             if (target_mode === "wild_number") {
                 if (
@@ -2655,14 +2788,24 @@ const render_hand = function () {
 
                 clear_selection();
                 selected_card_id = card.id;
-                play_selected_card_without_plane().then(render);
+                play_selected_card_without_plane().then(function (did_update) {
+                    if (did_update) {
+                        sync_multiplayer_state();
+                    }
+                    render();
+                });
                 render();
                 return;
             }
 
             clear_selection();
             selected_card_id = card.id;
-            play_selected_card_without_plane().then(render);
+            play_selected_card_without_plane().then(function (did_update) {
+                if (did_update) {
+                    sync_multiplayer_state();
+                }
+                render();
+            });
             render();
         });
 
@@ -2672,11 +2815,20 @@ const render_hand = function () {
     if (player.kind !== "cpu") {
         const draw_image = document.createElement("img");
 
-        draw_image.className = "card-image draw-card-button";
+        draw_image.className = (
+            has_playable_card
+            ? "card-image draw-card-button"
+            : "card-image draw-card-button draw-card-suggested"
+        );
+        draw_image.style.setProperty("--card-order", String(player.hand.length + 1));
         draw_image.src = UnoludoAssets.draw_card;
         draw_image.alt = "Draw and end turn";
 
         draw_image.addEventListener("click", function () {
+            if (!can_take_local_turn()) {
+                return;
+            }
+
             const next_state = Unoludo.draw_one_and_end_turn(state);
 
             if (next_state !== undefined) {
@@ -2711,6 +2863,7 @@ const render_hand = function () {
                         current_player: next_state.current_player,
                         active_colour: next_state.active_colour,
                         winner: next_state.winner,
+                        player_moods: next_state.player_moods,
                         log: Object.freeze(next_state.log.concat([
                             player.name + " received a P6 reward card (6th draw streak)!"
                         ]))
@@ -2720,14 +2873,127 @@ const render_hand = function () {
                 }
 
                 clear_selection();
-                last_action_was_draw = true;
                 action_message.textContent = "Drew one card and ended turn.";
+                sync_multiplayer_state();
                 render();
             }
         });
 
         hand_cards.appendChild(draw_image);
     }
+};
+
+const render_player_status_panel = function () {
+    if (player_status_panel === null) {
+        return;
+    }
+
+    player_status_panel.replaceChildren();
+
+    state.players.forEach(function (player) {
+        const row = document.createElement("div");
+        const swatch = document.createElement("span");
+        const name = document.createElement("span");
+        const hand_count = document.createElement("span");
+        const emoji = document.createElement("span");
+        const is_current = player.id === state.current_player;
+        const mood = (
+            state.player_moods === undefined
+            ? undefined
+            : state.player_moods[player.id]
+        );
+        const emoji_text = (
+            is_current
+            ? "🤔"
+            : (
+                mood === "smug"
+                ? "🤭"
+                : (
+                    mood === "angry"
+                    ? "😡"
+                    : "⏳"
+                )
+            )
+        );
+
+        row.className = (
+            is_current
+            ? "player-status-row is-thinking"
+            : "player-status-row"
+        );
+
+        swatch.className = "player-status-swatch";
+        swatch.style.background = player_colour_hex(player.colour);
+        swatch.style.boxShadow = (
+            "0 0 18px " + player_colour_hex(player.colour)
+        );
+
+        name.className = "player-status-name";
+        name.textContent = player.name;
+
+        hand_count.className = "player-status-hand-count";
+        hand_count.textContent = String(player.hand.length);
+        hand_count.setAttribute(
+            "aria-label",
+            player.hand.length + " cards left"
+        );
+
+        emoji.className = "player-status-emoji";
+        emoji.textContent = emoji_text;
+        emoji.setAttribute(
+            "aria-label",
+            (
+                is_current
+                ? "Thinking"
+                : (
+                    mood === "smug"
+                    ? "Disrupted another player"
+                    : (
+                        mood === "angry"
+                        ? "Disrupted by another player"
+                        : "Waiting"
+                    )
+                )
+            )
+        );
+
+        row.appendChild(swatch);
+        row.appendChild(name);
+        row.appendChild(hand_count);
+        row.appendChild(emoji);
+        player_status_panel.appendChild(row);
+    });
+};
+
+const render_hand_play_hint = function () {
+    const top_card = Unoludo.top_discard(state);
+    const active_colour = state.active_colour || top_card.colour;
+    const active_colour_hex = player_colour_hex(active_colour);
+    const match_label = card_match_label(top_card);
+
+    if (
+        hand_play_hint === null ||
+        hand_play_colour_swatch === null ||
+        hand_play_colour === null ||
+        hand_play_type === null
+    ) {
+        return;
+    }
+
+    hand_play_colour_swatch.style.background = active_colour_hex;
+    hand_play_colour_swatch.style.boxShadow = "0 0 14px " + active_colour_hex;
+    hand_play_colour.textContent = colour_label(active_colour);
+
+    if (top_card.colour === "wild") {
+        hand_play_type.textContent = "or any Wild";
+    } else {
+        hand_play_type.textContent = "or " + match_label;
+    }
+
+    hand_play_hint.setAttribute(
+        "aria-label",
+        "Can play " + colour_label(active_colour) + " or " + match_label
+    );
 };
 
 const render_info = function () {
@@ -2739,28 +3005,38 @@ const render_info = function () {
     const top_card = Unoludo.top_discard(state);
     let winner;
 
+    render_player_status_panel();
+    render_hand_play_hint();
+
     if (state.winner !== undefined) {
         winner = state.players[state.winner];
         action_message.textContent = winner.name + " wins the game!";
     }
 
     if (state.log.length === 1) {
-        played_card_title.textContent = "The First Card:";
+        played_card_title.textContent = "First card:";
     } else {
-        played_card_title.textContent = previous_player.name + " Played:";
+        // "drew" log is second-to-last because end_turn always appends after it
+        var last_log = state.log[state.log.length - 2] || "";
+        var last_action_is_draw = last_log.indexOf(" drew ") !== -1;
+        if (last_action_is_draw) {
+            played_card_title.textContent = previous_player.name + " drew:";
+        } else {
+            played_card_title.textContent = previous_player.name + " played:";
+        }
     }
 
-    if (last_action_was_draw) {
+    var last_log_for_image = state.log[state.log.length - 2] || "";
+    if (last_log_for_image.indexOf(" drew ") !== -1) {
         played_card_image.src = UnoludoAssets.draw_card;
         played_card_image.alt = "Draw card";
-        last_action_was_draw = false;
     } else {
         played_card_image.src = UnoludoAssets.card_image(top_card);
         played_card_image.alt = "Last played card: " + top_card.id;
     }
 
     if (turn_indicator_label !== null) {
-        turn_indicator_label.textContent = current_player.name + "'s Turn";
+        turn_indicator_label.textContent = current_player.name + "'s turn";
     }
 
 
@@ -2779,6 +3055,27 @@ const render_info = function () {
     }
 };
 
+const apply_multiplayer_turn_controls = function () {
+    const can_play = can_take_local_turn();
+
+    if (gameMode !== "multi") {
+        if (draw_end_turn_button !== null) {
+            draw_end_turn_button.disabled = false;
+        }
+        return;
+    }
+
+    hand_cards.querySelectorAll(".card-image").forEach(function (card_image) {
+        card_image.style.pointerEvents = can_play ? "" : "none";
+        card_image.style.opacity = can_play ? "" : "0.48";
+        card_image.setAttribute("aria-disabled", String(!can_play));
+    });
+
+    if (draw_end_turn_button !== null) {
+        draw_end_turn_button.disabled = !can_play;
+    }
+};
+
 const render = function () {
     const effects = pending_render_effects;
 
@@ -2786,6 +3083,7 @@ const render = function () {
     render_pieces();
     render_hand();
     render_info();
+    apply_multiplayer_turn_controls();
 
     if (effects !== undefined) {
         if (effects.winner_changed) {
@@ -2797,6 +3095,22 @@ const render = function () {
     }
 
     schedule_cpu_if_needed();
+};
+
+const update_mode_controls = function () {
+    const restart_button = document.getElementById("reset-demo");
+
+    if (restart_button !== null) {
+        restart_button.hidden = gameMode === "multi";
+    }
+
+    if (debug_move_button !== null) {
+        debug_move_button.hidden = gameMode === "multi";
+    }
+
+    if (give_card_button !== null) {
+        give_card_button.hidden = gameMode === "multi";
+    }
 };
 
 const set_demo_plane = function (status, position) {
@@ -2822,6 +3136,11 @@ const set_demo_plane = function (status, position) {
 };
 
 const restart_game = function () {
+    if (gameMode === "multi") {
+        action_message.textContent = "Restart is disabled in multiplayer games.";
+        return;
+    }
+
     Object.keys(piece_elements).forEach(function (piece_key) {
         piece_elements[piece_key].remove();
         delete piece_elements[piece_key];
@@ -2837,7 +3156,7 @@ const restart_game = function () {
     hand_cards.style.filter = "";
     hand_cards.style.transform = "";
 
-    state = Unoludo.create_initial_state([
+    initGameState([
         "Player",
         "CPU Green",
         "CPU Red",
@@ -2864,6 +3183,10 @@ document.getElementById("reset-demo").addEventListener("click", restart_game);
 winner_restart_button.addEventListener("click", restart_game);
 
 document.getElementById("draw-end-turn").addEventListener("click", function () {
+    if (!can_take_local_turn()) {
+        return;
+    }
+
     const next_state = Unoludo.draw_one_and_end_turn(state);
 
     if (next_state !== undefined) {
@@ -2900,6 +3223,7 @@ document.getElementById("draw-end-turn").addEventListener("click", function () {
                 current_player: next_state.current_player,
                 active_colour: next_state.active_colour,
                 winner: next_state.winner,
+                player_moods: next_state.player_moods,
                 log: Object.freeze(next_state.log.concat([
                     player.name + " received a P6 reward card (6th draw streak)!"
                 ]))
@@ -2909,8 +3233,8 @@ document.getElementById("draw-end-turn").addEventListener("click", function () {
         }
 
         clear_selection();
-        last_action_was_draw = true;
         action_message.textContent = "Drew one card and ended turn.";
+        sync_multiplayer_state();
         render();
     }
 });
@@ -2925,4 +3249,123 @@ if (cancel_action_button !== null) {
     });
 }
 
+const multiplayer_player_names = Object.freeze([
+    "Player 1",
+    "Player 2",
+    "Player 3",
+    "Player 4"
+]);
+
+const single_player_names = Object.freeze([
+    "Player",
+    "CPU Green",
+    "CPU Red",
+    "CPU Yellow"
+]);
+
+const reset_local_runtime_state = function () {
+    Object.keys(piece_elements).forEach(function (piece_key) {
+        piece_elements[piece_key].remove();
+        delete piece_elements[piece_key];
+        delete previous_piece_snapshots[piece_key];
+    });
+
+    if (cpu_timer !== undefined) {
+        window.clearTimeout(cpu_timer);
+        cpu_timer = undefined;
+    }
+
+    hand_cards.classList.remove("cpu-thinking");
+    hand_cards.style.filter = "";
+    hand_cards.style.transform = "";
+    rendered_discard_card_id = undefined;
+    pending_render_effects = undefined;
+    winner_popup_shown = false;
+    Object.keys(draw_streaks).forEach(function (key) {
+        draw_streaks[key] = 0;
+    });
+    if (particle_canvas !== null) {
+        particle_canvas.replaceChildren();
+    }
+    clear_selection();
+    hide_winner_popup();
+};
+
+window.UnoludoApp = {
+    startSinglePlayer: function () {
+        gameMode = "single";
+        update_mode_controls();
+        myPlayerIndex = 0;
+        multiplayerCpuAuthorityIndex = 0;
+        mpStateSynced = false;
+        reset_local_runtime_state();
+        initGameState(single_player_names, {
+            shuffle: true
+        });
+        action_message.textContent = "Game started.";
+        render();
+    },
+
+    startMultiPlayer: function (roomId, playerIndex, playerKinds, playerNames) {
+        gameMode = "multi";
+        update_mode_controls();
+        myPlayerIndex = playerIndex;
+        multiplayerCpuAuthorityIndex = (
+            window.UnoludoLobby !== undefined &&
+            window.UnoludoLobby.getCurrentHostIndex !== undefined
+            ? window.UnoludoLobby.getCurrentHostIndex()
+            : 0
+        );
+        mpStateSynced = false;
+        reset_local_runtime_state();
+
+        // Use the definitive playerKinds from the lobby (all clients get the same array)
+        // Empty slots default to "cpu" so the game cycles through all 4 players
+        var kinds = playerKinds || ["human", "human", "human", "human"];
+        var names = playerNames || multiplayer_player_names;
+        console.log("[MultiPlayer] playerKinds:", kinds, "myIndex:", playerIndex);
+
+        initGameState(names, {
+            shuffle: true,
+            playerKinds: kinds
+        });
+
+        window.UnoludoMultiplayer.onStateChange(function (remote_state) {
+            state = window.UnoludoMultiplayer.unflattenState(remote_state);
+            mpStateSynced = true;
+            clear_selection();
+            render();
+        });
+
+        window.UnoludoMultiplayer.init(roomId, playerIndex);
+
+        if (playerIndex === 0) {
+            window.UnoludoMultiplayer.setInitialState(state);
+        }
+
+        render();
+    }
+};
+
+if (window.UnoludoLobby !== undefined) {
+    window.UnoludoLobby.onGameStart(function (
+        roomId,
+        playerIndex,
+        playerKinds,
+        playerNames
+    ) {
+        window.UnoludoLobby.showScreen(window.UnoludoLobby.getGameScreen());
+        window.UnoludoApp.startMultiPlayer(
+            roomId,
+            playerIndex,
+            playerKinds,
+            playerNames
+        );
+    });
+}
+
+initGameState(single_player_names, {
+    shuffle: true
+});
+update_mode_controls();
 render();

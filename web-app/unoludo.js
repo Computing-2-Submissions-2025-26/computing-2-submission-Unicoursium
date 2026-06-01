@@ -54,7 +54,7 @@ Unoludo.number_values = Object.freeze([0, 1, 2, 3, 4, 5, 6]);
  * A plane controlled by one player.
  * @memberof Unoludo
  * @typedef {Object} Plane
- * @property {"base" | "track" | "home" | "finished"} status The plane's current area.
+ * @property {"base" | "gate" | "track" | "home" | "finished"} status The plane's current area.
  * @property {number} position The plane's position. -1 means not on a path.
  * @property {boolean} shielded Whether the plane is protected from being sent back to base.
  * @property {boolean} frozen Whether the plane is unable to move this turn.
@@ -138,9 +138,10 @@ const create_copies = function (prefix, count, type, colour, value) {
  * Create all coloured cards for one colour.
  * Each colour contains:
  * - 0 x 4
- * - 1-6 x 6 each
+ * - 1 x 4
+ * - 2-6 x 7 each
  * - Skip x 4
- * - Reverse x 4
+ * - Reverse x 1
  * - Draw Two x 4
  *
  * @function
@@ -156,10 +157,18 @@ const create_colour_cards = function (colour) {
         0
     );
 
-    const movement_cards = [1, 2, 3, 4, 5, 6].flatMap(function (value) {
+    const one_cards = create_copies(
+        colour + "-number-1",
+        4,
+        "number",
+        colour,
+        1
+    );
+
+    const movement_cards = [2, 3, 4, 5, 6].flatMap(function (value) {
         return create_copies(
             colour + "-number-" + value,
-            6,
+            7,
             "number",
             colour,
             value
@@ -169,7 +178,7 @@ const create_colour_cards = function (colour) {
     const skip_cards = create_copies(colour + "-skip", 4, "skip", colour);
     const reverse_cards = create_copies(
         colour + "-reverse",
-        4,
+        1,
         "reverse",
         colour
     );
@@ -182,6 +191,7 @@ const create_colour_cards = function (colour) {
 
     return [
         ...zero_cards,
+        ...one_cards,
         ...movement_cards,
         ...skip_cards,
         ...reverse_cards,
@@ -192,14 +202,15 @@ const create_colour_cards = function (colour) {
 /**
  * Create the full Unoludo deck.
  *
- * The deck contains 216 cards:
+ * The deck contains 220 cards:
  * - 16 zero shield cards
- * - 144 movement cards from 1 to 6
+ * - 16 movement cards with value 1
+ * - 140 movement cards from 2 to 6
  * - 16 Skip cards
- * - 16 Reverse cards
+ * - 4 Reverse cards
  * - 16 Draw Two cards
- * - 4 Wild cards
- * - 4 Wild +4 cards
+ * - 6 Wild cards
+ * - 6 Wild +4 cards
  *
  * @memberof Unoludo
  * @function
@@ -207,8 +218,8 @@ const create_colour_cards = function (colour) {
  */
 Unoludo.create_deck = function () {
     const coloured_cards = Unoludo.colours.flatMap(create_colour_cards);
-    const wild_cards = create_copies("wild", 4, "wild", "wild");
-    const wild_four_cards = create_copies("wild4", 4, "wild4", "wild");
+    const wild_cards = create_copies("wild", 6, "wild", "wild");
+    const wild_four_cards = create_copies("wild4", 6, "wild4", "wild");
 
     return Object.freeze([
         ...coloured_cards,
@@ -501,6 +512,7 @@ Unoludo.create_initial_state = function (player_names, options = {}) {
         current_player: 0,
         active_colour: discard_setup.active_colour,
         winner: undefined,
+        player_moods: Object.freeze({}),
         log: Object.freeze(["Game started."])
     });
 };
@@ -527,6 +539,29 @@ Unoludo.top_discard = function (state) {
  */
 Unoludo.current_player = function (state) {
     return state.players[state.current_player];
+};
+
+const player_moods_for_state = function (state) {
+    return state.player_moods || Object.freeze({});
+};
+
+const clear_player_mood = function (moods, player_id) {
+    const key = String(player_id);
+    const next_moods = {...moods};
+
+    delete next_moods[key];
+    return Object.freeze(next_moods);
+};
+
+const mark_disruption = function (state, disruptor_id, target_id) {
+    return Object.freeze({
+        ...state,
+        player_moods: Object.freeze({
+            ...player_moods_for_state(state),
+            [disruptor_id]: "smug",
+            [target_id]: "angry"
+        })
+    });
 };
 
 /**
@@ -568,7 +603,7 @@ Unoludo.can_play_on = function (card, top_card, active_colour) {
 
     if (
         card.type === "number" &&
-        top_card.type === "number" &&
+        (top_card.type === "number" || top_card.type === "reward") &&
         card.value === top_card.value
     ) {
         return true;
@@ -708,27 +743,34 @@ Unoludo.add_log = function (state, message) {
  * @memberof Unoludo
  * @readonly
  */
-Unoludo.track_length = 80;
+Unoludo.track_length = 52;
 
 /**
  * The number of spaces in each home lane.
  * @memberof Unoludo
  * @readonly
  */
-Unoludo.home_lane_length = 7;
+Unoludo.home_lane_length = 5;
 
 Unoludo.start_positions = Object.freeze({
     blue: 0,
-    green: 20,
-    red: 40,
-    yellow: 60
+    green: 13,
+    red: 26,
+    yellow: 39
 });
 
 Unoludo.home_entry_positions = Object.freeze({
-    blue: 78,
-    green: 18,
-    red: 38,
-    yellow: 58
+    blue: 49,
+    green: 10,
+    red: 23,
+    yellow: 36
+});
+
+Unoludo.jump_positions = Object.freeze({
+    blue: Object.freeze({from: 17, to: 29}),
+    green: Object.freeze({from: 30, to: 42}),
+    red: Object.freeze({from: 43, to: 3}),
+    yellow: Object.freeze({from: 4, to: 16})
 });
 
 
@@ -804,6 +846,7 @@ Unoludo.update_player = function (state, player_id, new_player) {
         current_player: state.current_player,
         active_colour: state.active_colour,
         winner: new_winner,
+        player_moods: player_moods_for_state(state),
         log: (
             state.winner === undefined &&
             new_winner !== undefined
@@ -842,38 +885,71 @@ Unoludo.update_plane = function (
     return Unoludo.update_player(state, player_id, new_player);
 };
 
-const create_refill_deck = function (state) {
-    const suffix = "-refill-" + state.log.length;
+const refill_draw_pile_from_discard = function (state) {
+    const top_discard = Unoludo.top_discard(state);
+    const refill_cards = state.discard_pile.slice(0, -1);
 
-    return Object.freeze(Unoludo.create_deck().map(function (card) {
-        return Unoludo.card(
-            card.id + suffix,
-            card.type,
-            card.colour,
-            card.value
-        );
-    }));
-};
-
-const draw_pile_with_enough_cards = function (state, count) {
-    let draw_pile = state.draw_pile;
-
-    while (draw_pile.length < count) {
-        draw_pile = Object.freeze(
-            draw_pile.concat(
-                Unoludo.shuffle_deck(create_refill_deck(state))
-            )
-        );
+    if (refill_cards.length === 0) {
+        return undefined;
     }
 
-    return draw_pile;
+    return Object.freeze({
+        draw_pile: Unoludo.shuffle_deck(refill_cards),
+        discard_pile: Object.freeze([top_discard]),
+        refilled: true
+    });
+};
+
+const create_emergency_refill_deck = function (state) {
+    const suffix = "-emergency-refill-" + state.log.length;
+
+    return Object.freeze(Unoludo.shuffle_deck(
+        Unoludo.create_deck().map(function (card) {
+            return Unoludo.card(
+                card.id + suffix,
+                card.type,
+                card.colour,
+                card.value
+            );
+        })
+    ));
+};
+
+const prepare_draw_pile = function (state, count) {
+    let draw_pile = state.draw_pile;
+    let discard_pile = state.discard_pile;
+    let refilled = false;
+    let refill;
+
+    if (draw_pile.length < count) {
+        refill = refill_draw_pile_from_discard(state);
+
+        if (refill !== undefined) {
+            draw_pile = Object.freeze(draw_pile.concat(refill.draw_pile));
+            discard_pile = refill.discard_pile;
+            refilled = true;
+        }
+    }
+
+    if (draw_pile.length < count) {
+        draw_pile = Object.freeze(
+            draw_pile.concat(create_emergency_refill_deck(state))
+        );
+        refilled = true;
+    }
+
+    return Object.freeze({
+        draw_pile: draw_pile,
+        discard_pile: discard_pile,
+        refilled: refilled
+    });
 };
 
 /**
  * Draw cards for a player.
  *
- * If the draw pile contains fewer cards than requested, the player draws
- * as many cards as possible.
+ * If the draw pile contains fewer cards than requested, the discard pile is
+ * reshuffled into the draw pile while preserving the top discard card.
  *
  * @memberof Unoludo
  * @function
@@ -884,9 +960,14 @@ const draw_pile_with_enough_cards = function (state, count) {
  */
 Unoludo.draw_cards = function (state, player_id, count) {
     const player = state.players[player_id];
-    const available_draw_pile = draw_pile_with_enough_cards(state, count);
-    const drawn_cards = available_draw_pile.slice(0, count);
-    const remaining_draw_pile = available_draw_pile.slice(drawn_cards.length);
+    const prepared_piles = prepare_draw_pile(state, count);
+    const drawn_cards = prepared_piles.draw_pile.slice(0, count);
+    const remaining_draw_pile = prepared_piles.draw_pile.slice(drawn_cards.length);
+    const refill_message = (
+        prepared_piles.refilled
+        ? ["Draw pile was refilled from the discard pile."]
+        : []
+    );
 
     const new_player = Object.freeze({
         id: player.id,
@@ -899,13 +980,14 @@ Unoludo.draw_cards = function (state, player_id, count) {
 
     return Object.freeze({
         draw_pile: Object.freeze(remaining_draw_pile),
-        discard_pile: state.discard_pile,
+        discard_pile: prepared_piles.discard_pile,
         players: replace_player(state.players, player_id, new_player),
         current_player: state.current_player,
         active_colour: state.active_colour,
         winner: state.winner,
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(
-            state.log.concat([
+            state.log.concat(refill_message).concat([
                 player.name + " drew " + drawn_cards.length + " card(s)."
             ])
         )
@@ -945,6 +1027,7 @@ const grant_empty_hand_bonus = function (state, player_id) {
         current_player: state_after_draw.current_player,
         active_colour: state_after_draw.active_colour,
         winner: state_after_draw.winner,
+        player_moods: player_moods_for_state(state_after_draw),
         log: Object.freeze(state_after_draw.log.concat([
             player.name + " emptied their hand and received a reward card."
         ]))
@@ -1040,6 +1123,10 @@ Unoludo.end_turn = function (state) {
         current_player: next_player_id,
         active_colour: state.active_colour,
         winner: state.winner,
+        player_moods: clear_player_mood(
+            player_moods_for_state(state),
+            next_player_id
+        ),
         log: Object.freeze(
             state.log.concat([
                 "Turn ended. It is now "
@@ -1133,6 +1220,7 @@ const commit_played_card = function (
             ? player_without_card.id
             : state.winner
         ),
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(state.log.concat([message]))
     });
 
@@ -1195,8 +1283,8 @@ Unoludo.play_reward_card = function (
 
     if (target_plane.status === "base") {
         moved_plane = Object.freeze({
-            status: "track",
-            position: Unoludo.start_positions[target_player.colour],
+            status: "gate",
+            position: -1,
             shielded: false,
             frozen: false
         });
@@ -1229,13 +1317,14 @@ Unoludo.play_reward_card = function (
         current_player: state.current_player,
         active_colour: chosen_colour,
         winner: state.winner,
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(state.log.concat([
             player.name + " played reward "
             + card.value + ", chose " + chosen_colour
             + ", and " + (target_plane.status === "base" ? "launched" : "moved")
             + " " + target_player.name + "'s plane "
             + target_plane_index
-            + (target_plane.status === "base" ? " to the track." : " forward by " + card.value + ".")
+            + (target_plane.status === "base" ? " to the gate." : " forward by " + card.value + ".")
         ]))
     });
 
@@ -1264,7 +1353,7 @@ Unoludo.play_reward_card = function (
  * Move an active plane forward.
  *
  * This simplified movement model treats the board as:
- * main track -> home lane -> finished.
+ * gate -> main track -> home lane -> finished.
  * Overshooting the final home position is illegal.
  *
  * @function
@@ -1274,6 +1363,16 @@ Unoludo.play_reward_card = function (
  */
 const wrapped_track_position = function (position) {
     return ((position % Unoludo.track_length) + Unoludo.track_length) % Unoludo.track_length;
+};
+
+const apply_track_jump = function (position, colour) {
+    const jump = Unoludo.jump_positions[colour];
+
+    if (jump !== undefined && position === jump.from) {
+        return jump.to;
+    }
+
+    return position;
 };
 
 const has_passed_home_entry = function (start_position, steps, entry_position) {
@@ -1291,9 +1390,37 @@ const has_passed_home_entry = function (start_position, steps, entry_position) {
 
 const move_active_plane = function (plane, steps, colour) {
     const entry_position = Unoludo.home_entry_positions[colour];
+    const start_position = Unoludo.start_positions[colour];
+    const remaining_steps = steps - 1;
     let distance_to_entry;
     let home_position;
     let next_position;
+
+    if (plane.status === "gate") {
+        if (start_position === undefined || steps <= 0) {
+            return undefined;
+        }
+
+        if (remaining_steps === 0) {
+            return Object.freeze({
+                status: "track",
+                position: start_position,
+                shielded: plane.shielded,
+                frozen: plane.frozen
+            });
+        }
+
+        return move_active_plane(
+            Object.freeze({
+                status: "track",
+                position: start_position,
+                shielded: plane.shielded,
+                frozen: plane.frozen
+            }),
+            remaining_steps,
+            colour
+        );
+    }
 
     if (plane.status === "track") {
         if (entry_position === undefined) {
@@ -1329,7 +1456,10 @@ const move_active_plane = function (plane, steps, colour) {
             return undefined;
         }
 
-        next_position = wrapped_track_position(plane.position + steps);
+        next_position = apply_track_jump(
+            wrapped_track_position(plane.position + steps),
+            colour
+        );
 
         return Object.freeze({
             status: "track",
@@ -1460,6 +1590,12 @@ Unoludo.resolve_captures = function (
                 + target_player.name + "'s plane "
                 + target_plane_index + "."
             );
+
+            resolved_state = mark_disruption(
+                resolved_state,
+                mover.id,
+                target_player.id
+            );
         });
     });
 
@@ -1540,7 +1676,7 @@ Unoludo.play_zero_card = function (state, card_id, plane_index) {
 /**
  * Play a number card from 1 to 6.
  *
- * A 6 card can launch a matching-colour plane from base to the start tile.
+ * A 6 card launches a matching-colour plane from base to the gate.
  * Otherwise, number cards move an active matching-colour plane by their value.
  *
  * @memberof Unoludo
@@ -1594,15 +1730,15 @@ Unoludo.play_number_card = function (state, card_id, plane_index) {
         }
 
         new_plane = Object.freeze({
-            status: "track",
-            position: Unoludo.start_positions[player.colour],
+            status: "gate",
+            position: -1,
             shielded: false,
             frozen: false
         });
 
         message = (
             player.name + " played " + card.colour + " 6 and launched "
-            + player.colour + "."
+            + player.colour + " to the gate."
         );
     } else {
         new_plane = move_active_plane(plane, card.value, player.colour);
@@ -1792,10 +1928,14 @@ Unoludo.play_skip_card = function (
         return undefined;
     }
 
-    return Unoludo.update_player(
-        state_after_card,
-        target_player_id,
-        frozen_target_player
+    return mark_disruption(
+        Unoludo.update_player(
+            state_after_card,
+            target_player_id,
+            frozen_target_player
+        ),
+        player.id,
+        target_player_id
     );
 };
 
@@ -1829,6 +1969,10 @@ const move_plane_backward = function (plane, steps, colour) {
 
     if (plane.status === "base" || plane.status === "finished") {
         return undefined;
+    }
+
+    if (plane.status === "gate") {
+        return plane_returned_to_base();
     }
 
     if (plane.status === "track") {
@@ -1892,66 +2036,52 @@ const move_plane_backward = function (plane, steps, colour) {
 };
 
 /**
- * Play a Reverse combo.
+ * Play a Reverse card.
  *
- * Reverse must be played with a number card of the same colour. The number
- * card determines how many spaces the target opponent plane moves backwards.
- * At least one of the two cards must satisfy the current UNO play condition.
+ * The player chooses how many spaces, from 1 to 6, to move the selected
+ * opponent plane backwards.
  *
  * @memberof Unoludo
  * @function
  * @param {Unoludo.State} state The current game state.
- * @param {string} reverse_card_id The Reverse card id.
- * @param {string} number_card_id The same-colour number card id.
+ * @param {string} card_id The Reverse card id.
  * @param {number} target_player_id The target opponent player id.
  * @param {number} target_plane_index The index of the target plane to move backwards (0-3).
+ * @param {number} steps The number of spaces to move backwards.
  * @returns {(Unoludo.State | undefined)} The updated state, or undefined.
  */
-Unoludo.play_reverse_combo = function (
+Unoludo.play_reverse_card = function (
     state,
-    reverse_card_id,
-    number_card_id,
+    card_id,
     target_player_id,
-    target_plane_index
+    target_plane_index,
+    steps
 ) {
     const player = Unoludo.current_player(state);
-    const reverse_card = Unoludo.card_in_hand(player, reverse_card_id);
-    const number_card = Unoludo.card_in_hand(player, number_card_id);
+    const card = Unoludo.card_in_hand(player, card_id);
     let target_player;
     let target_plane;
     let moved_plane;
-    let player_after_reverse;
-    let player_after_both_cards;
-    let state_after_cards;
+    let player_after_card;
+    let state_after_card;
 
     if (Unoludo.is_ended(state)) {
         return undefined;
     }
 
-    if (reverse_card === undefined || number_card === undefined) {
+    if (card === undefined) {
         return undefined;
     }
 
-    if (reverse_card.type !== "reverse") {
+    if (!Unoludo.can_play_card(card, state)) {
         return undefined;
     }
 
-    if (
-        number_card.type !== "number" ||
-        number_card.value < 1 ||
-        number_card.value > 6
-    ) {
+    if (card.type !== "reverse") {
         return undefined;
     }
 
-    if (reverse_card.colour !== number_card.colour) {
-        return undefined;
-    }
-
-    if (
-        !Unoludo.can_play_card(reverse_card, state) &&
-        !Unoludo.can_play_card(number_card, state)
-    ) {
+    if (!Number.isInteger(steps) || steps < 1 || steps > 6) {
         return undefined;
     }
 
@@ -1973,7 +2103,7 @@ Unoludo.play_reverse_combo = function (
 
     moved_plane = move_plane_backward(
         target_plane,
-        number_card.value,
+        steps,
         target_player.colour
     );
 
@@ -1981,58 +2111,47 @@ Unoludo.play_reverse_combo = function (
         return undefined;
     }
 
-    player_after_reverse = Unoludo.remove_card_from_hand(
-        player,
-        reverse_card_id
-    );
+    player_after_card = Unoludo.remove_card_from_hand(player, card_id);
 
-    if (player_after_reverse === undefined) {
+    if (player_after_card === undefined) {
         return undefined;
     }
 
-    player_after_both_cards = Unoludo.remove_card_from_hand(
-        player_after_reverse,
-        number_card_id
-    );
-
-    if (player_after_both_cards === undefined) {
-        return undefined;
-    }
-
-    state_after_cards = Object.freeze({
+    state_after_card = Object.freeze({
         draw_pile: state.draw_pile,
-        discard_pile: Object.freeze(
-            state.discard_pile.concat([reverse_card, number_card])
-        ),
+        discard_pile: Object.freeze(state.discard_pile.concat([card])),
         players: replace_player(
             state.players,
             player.id,
-            player_after_both_cards
+            player_after_card
         ),
         current_player: state.current_player,
-        active_colour: number_card.colour,
+        active_colour: card.colour,
         winner: state.winner,
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(state.log.concat([
             player.name + " played "
-            + reverse_card.colour + " Reverse with "
-            + number_card.value + " and moved "
+            + card.colour + " Reverse and moved "
             + target_player.name + "'s plane "
             + target_plane_index + " backwards by "
-            + number_card.value + "."
+            + steps + "."
         ]))
     });
 
-    state_after_cards = Unoludo.update_plane(
-        state_after_cards,
+    state_after_card = Unoludo.update_plane(
+        state_after_card,
         target_player_id,
         target_plane_index,
         moved_plane
     );
 
-    return grant_empty_hand_bonus(
-        state_after_cards,
-        player.id
+    state_after_card = mark_disruption(
+        state_after_card,
+        player.id,
+        target_player_id
     );
+
+    return grant_empty_hand_bonus(state_after_card, player.id);
 };
 
 /**
@@ -2111,8 +2230,8 @@ Unoludo.play_wild_combo = function (
         }
 
         moved_plane = Object.freeze({
-            status: "track",
-            position: Unoludo.start_positions[target_player.colour],
+            status: "gate",
+            position: -1,
             shielded: false,
             frozen: false
         });
@@ -2159,6 +2278,7 @@ Unoludo.play_wild_combo = function (
         current_player: state.current_player,
         active_colour: number_card.colour,
         winner: state.winner,
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(state.log.concat([
             player.name + " played Wild with "
             + number_card.colour + " " + number_card.value
@@ -2276,6 +2396,7 @@ Unoludo.play_wild4_card = function (state, card_id, option, chosen_colour) {
         current_player: state.current_player,
         active_colour: chosen_colour,
         winner: state.winner,
+        player_moods: player_moods_for_state(state),
         log: Object.freeze(state.log.concat([
             player.name + " played Wild +4 and chose " + chosen_colour + "."
         ]))
