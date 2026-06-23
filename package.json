@@ -3,7 +3,10 @@
   "type": "module",
   "version": "1.0.0",
   "description": "",
-  "main": "web-app/Module.js",
+  "main": "web-app/unoludo.js",
+  "scripts": {
+    "test": "mocha \"web-app/tests/**/*.test.js\""
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {

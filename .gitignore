@@ -2,3 +2,4 @@ node_modules
 .directory
 memo.md
 .DS_Store
+BUG_AUDIT.md

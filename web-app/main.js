@@ -17,6 +17,10 @@ let audio_context = undefined;
 let pending_render_effects = undefined;
 let active_piece_animations = 0;
 let gameMode = "none";
+let tutorialLevelIndex = 0;
+let tutorialCompletionTimer = undefined;
+let tutorialAcknowledged = false;
+let tutorialAckPending = false;
 let myPlayerIndex = 0;
 let mpStateSynced = false;
 let multiplayerCpuAuthorityIndex = 0;
@@ -31,6 +35,15 @@ const previous_piece_snapshots = Object.create(null);
 const piece_animation_tokens = Object.create(null);
 const draw_end_turn_button = document.getElementById("draw-end-turn");
 const sound_toggle_button = document.getElementById("sound-toggle");
+const tutorial_prev_button = document.getElementById("tutorial-prev");
+const tutorial_exit_button = document.getElementById("tutorial-exit");
+const tutorial_panel = document.getElementById("tutorial-panel");
+const tutorial_level_label = document.getElementById("tutorial-level-label");
+const tutorial_title = document.getElementById("tutorial-title");
+const tutorial_instruction = document.getElementById("tutorial-instruction");
+const tutorial_coach_layer = document.getElementById("tutorial-coach-layer");
+const tutorial_complete_overlay = document.getElementById("tutorial-complete-overlay");
+const tutorial_complete_title = document.getElementById("tutorial-complete-title");
 
 const initGameState = function (playerNames, options) {
     state = Unoludo.create_initial_state(playerNames, options || {});
@@ -58,6 +71,50 @@ const initGameState = function (playerNames, options) {
     }
 
     return state;
+};
+
+const tutorial_plane = function (status, position, options) {
+    const plane_options = options || {};
+
+    return Object.freeze({
+        status: status,
+        position: position,
+        shielded: plane_options.shielded || false,
+        frozen: plane_options.frozen || false
+    });
+};
+
+const tutorial_player = function (id, name, colour, hand, planes) {
+    return Object.freeze({
+        id: id,
+        name: name,
+        colour: colour,
+        kind: "human",
+        hand: Object.freeze(hand),
+        planes: Object.freeze(planes)
+    });
+};
+
+const tutorial_four_planes = function (first_plane) {
+    return Object.freeze([
+        first_plane,
+        ...Unoludo.empty_planes().slice(1)
+    ]);
+};
+
+const tutorial_state = function (players, top_card, options) {
+    const state_options = options || {};
+
+    return Object.freeze({
+        draw_pile: Object.freeze(state_options.draw_pile || []),
+        discard_pile: Object.freeze(state_options.discard_pile || [top_card]),
+        players: Object.freeze(players),
+        current_player: state_options.current_player || 0,
+        active_colour: state_options.active_colour || top_card.colour,
+        winner: undefined,
+        player_moods: Object.freeze({}),
+        log: Object.freeze(state_options.log || ["Tutorial level started."])
+    });
 };
 
 const audio_context_class = window.AudioContext || window.webkitAudioContext;
@@ -1887,19 +1944,41 @@ const choose_colour_with_modal = function () {
     });
 };
 
-const choose_wild4_option_with_modal = function () {
+const choose_wild4_option_with_modal = function (forced_option) {
     return new Promise(function (resolve) {
-        wild4_draw4_choice.onclick = function () {
+        const lock_draw4 = forced_option === "advance_all";
+        const lock_move = forced_option === "draw4";
+
+        const cleanup = function () {
             wild4_option_overlay.classList.add("hidden");
             wild4_draw4_choice.onclick = null;
             wild4_move_choice.onclick = null;
+            wild4_draw4_choice.disabled = false;
+            wild4_move_choice.disabled = false;
+            wild4_draw4_choice.classList.remove("choice-locked");
+            wild4_move_choice.classList.remove("choice-locked");
+        };
+
+        // In tutorial steps that teach one specific option, the other option is
+        // locked so the player cannot pick the choice that breaks the lesson.
+        wild4_draw4_choice.disabled = lock_draw4;
+        wild4_move_choice.disabled = lock_move;
+        wild4_draw4_choice.classList.toggle("choice-locked", lock_draw4);
+        wild4_move_choice.classList.toggle("choice-locked", lock_move);
+
+        wild4_draw4_choice.onclick = function () {
+            if (lock_draw4) {
+                return;
+            }
+            cleanup();
             resolve("draw4");
         };
 
         wild4_move_choice.onclick = function () {
-            wild4_option_overlay.classList.add("hidden");
-            wild4_draw4_choice.onclick = null;
-            wild4_move_choice.onclick = null;
+            if (lock_move) {
+                return;
+            }
+            cleanup();
             resolve("advance_all");
         };
 
@@ -2284,6 +2363,27 @@ const can_take_local_turn = function () {
     );
 };
 
+const current_tutorial_level = function () {
+    if (gameMode !== "tutorial") {
+        return undefined;
+    }
+
+    return tutorial_levels[tutorialLevelIndex];
+};
+
+const tutorial_hand_contains = function (test_state, player_id, card_id) {
+    return test_state.players[player_id].hand.some(function (card) {
+        return card.id === card_id;
+    });
+};
+
+const tutorial_requires_acknowledgement = function (level) {
+    return (
+        level !== undefined &&
+        level.acknowledgeMessage !== undefined
+    );
+};
+
 const finish_successful_action = function (next_state, message, should_sync) {
     const final_state = Unoludo.end_turn(next_state);
     const player = Unoludo.current_player(state);
@@ -2301,6 +2401,84 @@ const finish_successful_action = function (next_state, message, should_sync) {
         sync_multiplayer_state();
     }
     render();
+    check_tutorial_progress();
+    return true;
+};
+
+// Rebuild a state in which the mover's planes have already advanced but the
+// opponents they captured are restored to where they were standing. This is
+// the snapshot shown while the player's planes travel; the real captures are
+// applied afterwards.
+const restore_captured_planes = function (before_state, after_state) {
+    let result = after_state;
+
+    after_state.players.forEach(function (target_player, player_index) {
+        if (player_index === before_state.current_player) {
+            return;
+        }
+
+        target_player.planes.forEach(function (plane, plane_index) {
+            const before_plane = (
+                before_state.players[player_index].planes[plane_index]
+            );
+
+            if (plane.status === "base" && before_plane.status !== "base") {
+                result = Unoludo.update_plane(
+                    result,
+                    target_player.id,
+                    plane_index,
+                    before_plane
+                );
+            }
+        });
+    });
+
+    return result;
+};
+
+const run_when_pieces_settled = function (callback) {
+    if (active_piece_animations === 0) {
+        callback();
+        return;
+    }
+
+    window.setTimeout(function () {
+        run_when_pieces_settled(callback);
+    }, 60);
+};
+
+// Wild +4 "move all" is animated in two phases: first the player's own planes
+// advance, and only after they arrive are the planes they landed on sent home.
+const finish_advance_all_in_two_phases = function (next_state, message) {
+    const before_state = state;
+    const player = Unoludo.current_player(before_state);
+    const moved_only = restore_captured_planes(before_state, next_state);
+
+    reset_draw_streak(player.id);
+
+    // Phase one: advance the player's planes; captured opponents stay put.
+    prepare_render_effects(
+        before_state,
+        moved_only,
+        prepare_card_effects_from_next_state(next_state)
+    );
+    state = moved_only;
+    clear_selection();
+    action_message.textContent = message;
+    render();
+
+    // Phase two: once the planes have arrived, resolve the captures and end the
+    // turn so the opponents are sent home afterwards.
+    run_when_pieces_settled(function () {
+        const final_state = Unoludo.end_turn(next_state);
+
+        prepare_render_effects(moved_only, final_state, {});
+        state = final_state;
+        sync_multiplayer_state();
+        render();
+        check_tutorial_progress();
+    });
+
     return true;
 };
 
@@ -2373,7 +2551,12 @@ const play_selected_card_without_plane = async function () {
     }
 
     if (card.type === "wild4") {
-        const option = await choose_wild4_option_with_modal();
+        const level = current_tutorial_level();
+        const option = await choose_wild4_option_with_modal(
+            level === undefined
+            ? undefined
+            : level.forcedWild4Option
+        );
         const chosen_colour = await choose_colour_with_modal();
 
         next_state = Unoludo.play_wild4_card(
@@ -2388,13 +2571,18 @@ const play_selected_card_without_plane = async function () {
             return;
         }
 
+        if (option === "advance_all") {
+            // Two-phase so the player's planes are seen moving forward first,
+            // and only then are the planes they land on sent home.
+            return finish_advance_all_in_two_phases(
+                next_state,
+                "Played Wild +4 and advanced all active planes."
+            );
+        }
+
         return finish_successful_action(
             next_state,
-            (
-                option === "advance_all"
-                ? "Played Wild +4 and advanced all active planes."
-                : "Played Wild +4 and drew four cards."
-            ),
+            "Played Wild +4 and drew four cards.",
             false
         );
     }
@@ -2836,6 +3024,7 @@ const animate_piece_along_path = function (
 
         if (active_piece_animations === 0) {
             apply_multiplayer_turn_controls();
+            render_tutorial_coach();
             schedule_cpu_if_needed();
         }
     }, delay + piece_step_duration_for_path(path));
@@ -3138,6 +3327,14 @@ const render_hand = function () {
     const player = (gameMode === "multi")
         ? state.players[myPlayerIndex]
         : Unoludo.current_player(state);
+    const tutorial_level = current_tutorial_level();
+    const show_draw_card = (
+        player.kind !== "cpu" &&
+        (
+            gameMode !== "tutorial" ||
+            (tutorial_level !== undefined && tutorial_level.allowTutorialDraw === true)
+        )
+    );
 
     hand_cards.replaceChildren();
 
@@ -3231,7 +3428,7 @@ const render_hand = function () {
         hand_cards.appendChild(image);
     });
 
-    if (player.kind !== "cpu") {
+    if (show_draw_card) {
         const draw_image = document.createElement("img");
 
         draw_image.className = (
@@ -3242,6 +3439,9 @@ const render_hand = function () {
         draw_image.style.setProperty("--card-order", String(player.hand.length + 1));
         draw_image.src = UnoludoAssets.draw_card;
         draw_image.alt = "Draw and end turn";
+        if (gameMode === "tutorial") {
+            draw_image.dataset.cardId = "tutorial-draw-card";
+        }
 
         draw_image.addEventListener("click", function () {
             if (!can_take_local_turn()) {
@@ -3293,12 +3493,40 @@ const render_hand = function () {
 
                 clear_selection();
                 action_message.textContent = "Drew one card and ended turn.";
-                sync_multiplayer_state();
                 render();
+                if (gameMode === "tutorial") {
+                    check_tutorial_progress();
+                } else {
+                    sync_multiplayer_state();
+                }
             }
         });
 
         hand_cards.appendChild(draw_image);
+    }
+
+    if (gameMode === "tutorial" && tutorialAckPending) {
+        const ack_card = document.createElement("div");
+        const ack_text = document.createElement("p");
+        const ack_button = document.createElement("button");
+
+        ack_card.className = "tutorial-ack-card";
+        ack_card.id = "tutorial-ack-card";
+        ack_text.className = "tutorial-ack-text";
+        ack_text.textContent = tutorial_level.acknowledgeMessage;
+        ack_button.className = "tutorial-ack-button";
+        ack_button.type = "button";
+        ack_button.textContent = "Got It";
+        ack_button.addEventListener("click", function () {
+            tutorialAcknowledged = true;
+            tutorialAckPending = false;
+            render();
+            check_tutorial_progress();
+        });
+
+        ack_card.appendChild(ack_text);
+        ack_card.appendChild(ack_button);
+        hand_cards.appendChild(ack_card);
     }
 };
 
@@ -3426,6 +3654,7 @@ const render_info = function () {
 
     render_player_status_panel();
     render_hand_play_hint();
+    update_tutorial_panel();
 
     if (state.winner !== undefined) {
         winner = state.players[state.winner];
@@ -3455,7 +3684,14 @@ const render_info = function () {
     }
 
     if (turn_indicator_label !== null) {
-        turn_indicator_label.textContent = current_player.name + "'s turn";
+        turn_indicator_label.textContent = (
+            gameMode === "tutorial"
+            ? (
+                tutorial_series_title + " " + (tutorialLevelIndex + 1) +
+                ": " + tutorial_levels[tutorialLevelIndex].title
+            )
+            : current_player.name + "'s turn"
+        );
     }
 
 
@@ -3514,21 +3750,48 @@ const render = function () {
     }
 
     schedule_cpu_if_needed();
+    render_tutorial_coach();
 };
 
 const update_mode_controls = function () {
     const restart_button = document.getElementById("reset-demo");
+    const is_tutorial = gameMode === "tutorial";
 
     if (restart_button !== null) {
         restart_button.hidden = gameMode === "multi";
     }
 
+    if (tutorial_prev_button !== null) {
+        tutorial_prev_button.hidden = !is_tutorial;
+        tutorial_prev_button.disabled = tutorialLevelIndex === 0;
+    }
+
+    if (tutorial_exit_button !== null) {
+        tutorial_exit_button.hidden = !is_tutorial;
+    }
+
+    if (draw_end_turn_button !== null) {
+        draw_end_turn_button.hidden = is_tutorial;
+    }
+
+    if (sound_toggle_button !== null) {
+        sound_toggle_button.hidden = is_tutorial;
+    }
+
+    if (open_log_button !== null) {
+        open_log_button.hidden = is_tutorial;
+    }
+
+    if (open_help_button !== null) {
+        open_help_button.hidden = is_tutorial;
+    }
+
     if (debug_move_button !== null) {
-        debug_move_button.hidden = gameMode === "multi";
+        debug_move_button.hidden = gameMode === "multi" || is_tutorial;
     }
 
     if (give_card_button !== null) {
-        give_card_button.hidden = gameMode === "multi";
+        give_card_button.hidden = gameMode === "multi" || is_tutorial;
     }
 };
 
@@ -3560,6 +3823,11 @@ const restart_game = function () {
         return;
     }
 
+    if (gameMode === "tutorial") {
+        load_tutorial_level(tutorialLevelIndex);
+        return;
+    }
+
     Object.keys(piece_elements).forEach(function (piece_key) {
         piece_elements[piece_key].remove();
         delete piece_elements[piece_key];
@@ -3586,6 +3854,8 @@ const restart_game = function () {
     rendered_discard_card_id = undefined;
     pending_render_effects = undefined;
     winner_popup_shown = false;
+    tutorialAcknowledged = false;
+    tutorialAckPending = false;
     Object.keys(draw_streaks).forEach(function (key) {
         draw_streaks[key] = 0;
     });
@@ -3600,6 +3870,22 @@ const restart_game = function () {
 
 document.getElementById("reset-demo").addEventListener("click", restart_game);
 winner_restart_button.addEventListener("click", restart_game);
+
+if (tutorial_prev_button !== null) {
+    tutorial_prev_button.addEventListener("click", function () {
+        if (gameMode === "tutorial") {
+            load_tutorial_level(tutorialLevelIndex - 1);
+        }
+    });
+}
+
+if (tutorial_exit_button !== null) {
+    tutorial_exit_button.addEventListener("click", function () {
+        if (gameMode === "tutorial") {
+            exit_tutorial();
+        }
+    });
+}
 
 document.getElementById("draw-end-turn").addEventListener("click", function () {
     if (!can_take_local_turn()) {
@@ -3668,6 +3954,10 @@ if (cancel_action_button !== null) {
     });
 }
 
+window.addEventListener("resize", function () {
+    render_tutorial_coach();
+});
+
 const multiplayer_player_names = Object.freeze([
     "Player 1",
     "Player 2",
@@ -3682,6 +3972,636 @@ const single_player_names = Object.freeze([
     "CPU Yellow"
 ]);
 
+const basic_tutorial_levels = Object.freeze([
+    Object.freeze({
+        title: "Launch",
+        instruction: "Blue 6 can launch a blue plane. Yellow 6 is not playable here.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-6"]),
+            cardHint: "6 can launch a plane.",
+            targetSelector: ".current-player-piece",
+            targetHint: "Click any blue plane to launch."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("tutorial-yellow-6", "number", "yellow", 6),
+                        Unoludo.card("tutorial-blue-6", "number", "blue", 6)
+                    ],
+                    Unoludo.empty_planes()
+                )
+            ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            return test_state.players[0].planes.some(function (plane) {
+                return plane.status === "gate";
+            });
+        }
+    }),
+    Object.freeze({
+        title: "Move From Gate",
+        instruction: "Play the blue 2 and move the plane from the gate onto the track.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-2"]),
+            cardHint: "This 2 moves your plane two steps.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Move this plane from the gate."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-2", "number", "blue", 2)],
+                    tutorial_four_planes(tutorial_plane("gate", -1))
+                )
+            ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            const plane = test_state.players[0].planes[0];
+
+            return plane.status === "track" && plane.position === 1;
+        }
+    }),
+    Object.freeze({
+        title: "Match Colour Or Number",
+        instruction: "The top card is blue 4. Blue 2 matches colour, red 4 matches number, but red 1 cannot be played.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-2-match", "tutorial-red-4-match"]),
+            cardHint: "Match blue or match the number 4.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Now choose your plane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("tutorial-red-1-mismatch", "number", "red", 1),
+                        Unoludo.card("tutorial-blue-2-match", "number", "blue", 2),
+                        Unoludo.card("tutorial-red-4-match", "number", "red", 4)
+                    ],
+                    tutorial_four_planes(tutorial_plane("gate", -1))
+                )
+            ], Unoludo.card("tutorial-top-blue-4", "number", "blue", 4));
+        },
+        isComplete: function (test_state) {
+            const top_card = Unoludo.top_discard(test_state);
+
+            return (
+                top_card.id === "tutorial-blue-2-match" ||
+                top_card.id === "tutorial-red-4-match"
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Draw When Stuck",
+        instruction: "None of your cards can be played. Click the grey Draw card to take one card and end the turn.",
+        allowTutorialDraw: true,
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-draw-card"]),
+            cardHint: "No playable cards? Click Draw.",
+            targetSelector: undefined,
+            targetHint: ""
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("tutorial-draw-red-1", "number", "red", 1),
+                        Unoludo.card("tutorial-draw-yellow-2", "number", "yellow", 2)
+                    ],
+                    tutorial_four_planes(tutorial_plane("gate", -1))
+                )
+            ], Unoludo.card("tutorial-top-blue-4-draw", "number", "blue", 4), {
+                draw_pile: Object.freeze([
+                    Unoludo.card("tutorial-drawn-blue-6", "number", "blue", 6)
+                ])
+            });
+        },
+        isComplete: function (test_state) {
+            return test_state.players[0].hand.some(function (card) {
+                return card.id === "tutorial-drawn-blue-6";
+            });
+        }
+    }),
+    Object.freeze({
+        title: "Capture",
+        instruction: "Play the blue 4 to land on the red plane and send it back to base.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-4-capture"]),
+            cardHint: "This 4 lands on the red plane.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Move your plane to capture."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-4-capture", "number", "blue", 4)],
+                    tutorial_four_planes(tutorial_plane("track", 5))
+                ),
+                tutorial_player(
+                    1,
+                    "Red",
+                    "red",
+                    [],
+                    tutorial_four_planes(tutorial_plane("track", 9))
+                )
+            ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            return test_state.players[1].planes[0].status === "base";
+        }
+    }),
+    Object.freeze({
+        title: "Shield",
+        instruction: "Shield the blue plane, then let Red try to capture it. The shield blocks the attack.",
+        coach: function () {
+            if (state.current_player === 1) {
+                return Object.freeze({
+                    cardIds: Object.freeze(["tutorial-blue-4-shield-attack"]),
+                    cardHint: "Now try to attack the shielded plane.",
+                    targetSelector: "[data-piece-key='player-1-plane-0']",
+                    targetHint: "Move Red onto Blue."
+                });
+            }
+
+            return Object.freeze({
+                cardIds: Object.freeze(["tutorial-blue-0"]),
+                cardHint: "0 gives a shield.",
+                targetSelector: "[data-piece-key='player-0-plane-0']",
+                targetHint: "Shield this active plane."
+            });
+        },
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-0", "number", "blue", 0)],
+                    tutorial_four_planes(tutorial_plane("track", 9))
+                ),
+                tutorial_player(
+                    1,
+                    "Red",
+                    "red",
+                    [Unoludo.card("tutorial-blue-4-shield-attack", "number", "blue", 4)],
+                    tutorial_four_planes(tutorial_plane("track", 5))
+                )
+            ], Unoludo.card("tutorial-top-blue-5", "number", "blue", 5));
+        },
+        isComplete: function (test_state) {
+            const blue_plane = test_state.players[0].planes[0];
+            const red_plane = test_state.players[1].planes[0];
+            const top_card = Unoludo.top_discard(test_state);
+
+            return (
+                top_card.id === "tutorial-blue-4-shield-attack" &&
+                blue_plane.status === "track" &&
+                blue_plane.position === 9 &&
+                red_plane.status === "track" &&
+                red_plane.position === 9
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Skip",
+        instruction: "Play Skip, then choose the red plane to freeze it.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-skip"]),
+            cardHint: "Skip freezes another player's planes.",
+            targetSelector: "[data-piece-key='player-1-plane-0']",
+            targetHint: "Freeze this red plane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-skip", "skip", "blue")],
+                    Unoludo.empty_planes()
+                ),
+                tutorial_player(
+                    1,
+                    "Red",
+                    "red",
+                    [],
+                    tutorial_four_planes(tutorial_plane("track", 12))
+                )
+            ], Unoludo.card("tutorial-top-skip", "skip", "blue"));
+        },
+        isComplete: function (test_state) {
+            return test_state.players[1].planes[0].frozen === true;
+        }
+    }),
+    Object.freeze({
+        title: "Jump Square",
+        instruction: "Play the blue 2 to land on the jump square and leap ahead.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-2-jump"]),
+            cardHint: "This 2 reaches the jump square.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Move onto the jump square."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-2-jump", "number", "blue", 2)],
+                    tutorial_four_planes(tutorial_plane("track", 15))
+                )
+            ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            const plane = test_state.players[0].planes[0];
+
+            return plane.status === "track" && plane.position === 29;
+        }
+    }),
+    Object.freeze({
+        title: "Home Lane",
+        instruction: "Play the blue 1 to move past the home entry and into the home lane.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-1-home"]),
+            cardHint: "This 1 reaches your home lane.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Enter the home lane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-1-home", "number", "blue", 1)],
+                    tutorial_four_planes(tutorial_plane("track", 49))
+                )
+            ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            const plane = test_state.players[0].planes[0];
+
+            return plane.status === "home" && plane.position === 0;
+        }
+    })
+]);
+
+const enhanced_tutorial_levels = Object.freeze([
+    Object.freeze({
+        title: "Draw Two",
+        instruction: "Only the blue +2 can be played. It replaces itself with two new cards, so your hand grows from 3 cards to 4.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-blue-draw2"]),
+            cardHint: "Play +2 to draw two cards.",
+            targetSelector: undefined,
+            targetHint: ""
+        }),
+        acknowledgeMessage: "You played 1 card and drew 2 new cards. Your hand increased from 3 cards to 4.",
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("enhanced-red-1-draw2-blocked", "number", "red", 1),
+                        Unoludo.card("enhanced-yellow-2-draw2-blocked", "number", "yellow", 2),
+                        Unoludo.card("enhanced-blue-draw2", "draw2", "blue")
+                    ],
+                    tutorial_four_planes(tutorial_plane("track", 0))
+                )
+            ], Unoludo.card("enhanced-top-blue-5", "number", "blue", 5), {
+                draw_pile: Object.freeze([
+                    Unoludo.card("enhanced-draw2-drawn-red-1", "number", "red", 1),
+                    Unoludo.card("enhanced-draw2-drawn-yellow-2", "number", "yellow", 2)
+                ])
+            });
+        },
+        isComplete: function (test_state) {
+            return (
+                Unoludo.top_discard(test_state).id === "enhanced-blue-draw2" &&
+                test_state.players[0].hand.some(function (card) {
+                    return card.id === "enhanced-draw2-drawn-red-1";
+                }) &&
+                test_state.players[0].hand.some(function (card) {
+                    return card.id === "enhanced-draw2-drawn-yellow-2";
+                })
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Reverse",
+        instruction: "Only Reverse can be played. Choose an enemy plane, then choose how many spaces it moves backward.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-blue-reverse"]),
+            cardHint: "Reverse pushes an enemy plane back.",
+            targetSelector: "[data-piece-key='player-1-plane-0']",
+            targetHint: "Choose this red plane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("enhanced-red-1-reverse-blocked", "number", "red", 1),
+                        Unoludo.card("enhanced-yellow-2-reverse-blocked", "number", "yellow", 2),
+                        Unoludo.card("enhanced-blue-reverse", "reverse", "blue")
+                    ],
+                    tutorial_four_planes(tutorial_plane("track", 0))
+                ),
+                tutorial_player(
+                    1,
+                    "Red",
+                    "red",
+                    [],
+                    tutorial_four_planes(tutorial_plane("track", 10))
+                )
+            ], Unoludo.card("enhanced-top-blue-5-reverse", "number", "blue", 5));
+        },
+        isComplete: function (test_state) {
+            const red_plane = test_state.players[1].planes[0];
+
+            return (
+                Unoludo.top_discard(test_state).id === "enhanced-blue-reverse" &&
+                red_plane.status === "track" &&
+                red_plane.position < 10
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Wild Combo",
+        instruction: "Red sent one of your planes home. Use Green's plane with Wild to get revenge on Red.",
+        coach: function () {
+            if (target_mode === "wild_number") {
+                return Object.freeze({
+                    cardIds: Object.freeze(["enhanced-green-4-wild"]),
+                    cardHint: "Choose green 4 for Wild.",
+                    showCardDuringTargetMode: true,
+                    targetSelector: undefined,
+                    targetHint: ""
+                });
+            }
+
+            if (target_mode === "wild_target") {
+                return Object.freeze({
+                    cardIds: Object.freeze(["enhanced-wild"]),
+                    cardHint: "",
+                    targetSelector: "[data-piece-key='player-1-plane-0']",
+                    targetHint: "Move Green to hit Red."
+                });
+            }
+
+            return Object.freeze({
+                cardIds: Object.freeze(["enhanced-wild"]),
+                cardHint: "Wild can move any player's active plane.",
+                targetSelector: "[data-piece-key='player-1-plane-0']",
+                targetHint: "Use Green's plane for revenge."
+            });
+        },
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("enhanced-wild", "wild", "wild"),
+                        Unoludo.card("enhanced-green-4-wild", "number", "green", 4)
+                    ],
+                    Unoludo.empty_planes()
+                ),
+                tutorial_player(
+                    1,
+                    "Green",
+                    "green",
+                    [],
+                    tutorial_four_planes(tutorial_plane("track", 19))
+                ),
+                tutorial_player(
+                    2,
+                    "Red",
+                    "red",
+                    [],
+                    tutorial_four_planes(tutorial_plane("track", 23))
+                )
+            ], Unoludo.card("enhanced-top-red-5-wild", "number", "red", 5));
+        },
+        isComplete: function (test_state) {
+            const green_plane = test_state.players[1].planes[0];
+            const red_plane = test_state.players[2].planes[0];
+
+            return (
+                Unoludo.top_discard(test_state).id === "enhanced-green-4-wild" &&
+                green_plane.status === "track" &&
+                green_plane.position === 23 &&
+                red_plane.status === "base"
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Wild +4: Draw Four",
+        instruction: "First try Wild +4's Draw 4 option. After choosing it, choose any colour.",
+        forcedWild4Option: "draw4",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-wild4-draw"]),
+            cardHint: "Choose Draw 4 this time.",
+            targetSelector: undefined,
+            targetHint: ""
+        }),
+        acknowledgeMessage: "Draw 4 added four new cards to your hand. Wild +4 also lets you choose the next colour.",
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("enhanced-red-1-wild4-draw-blocked", "number", "red", 1),
+                        Unoludo.card("enhanced-yellow-2-wild4-draw-blocked", "number", "yellow", 2),
+                        Unoludo.card("enhanced-wild4-draw", "wild4", "wild")
+                    ],
+                    tutorial_four_planes(tutorial_plane("track", 0))
+                )
+            ], Unoludo.card("enhanced-top-blue-5-wild4", "number", "blue", 5), {
+                draw_pile: Object.freeze([
+                    Unoludo.card("enhanced-wild4-draw-a", "number", "blue", 1),
+                    Unoludo.card("enhanced-wild4-draw-b", "number", "green", 2),
+                    Unoludo.card("enhanced-wild4-draw-c", "number", "red", 3),
+                    Unoludo.card("enhanced-wild4-draw-d", "number", "yellow", 4)
+                ])
+            });
+        },
+        isComplete: function (test_state) {
+            return (
+                Unoludo.top_discard(test_state).id === "enhanced-wild4-draw" &&
+                tutorial_hand_contains(test_state, 0, "enhanced-wild4-draw-a") &&
+                tutorial_hand_contains(test_state, 0, "enhanced-wild4-draw-b") &&
+                tutorial_hand_contains(test_state, 0, "enhanced-wild4-draw-c") &&
+                tutorial_hand_contains(test_state, 0, "enhanced-wild4-draw-d")
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Wild +4: Move All",
+        instruction: "Now choose Wild +4's Move All option. All four blue planes move 4 spaces and can capture together.",
+        forcedWild4Option: "advance_all",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-wild4-move"]),
+            cardHint: "Choose Move All Active Planes.",
+            targetSelector: undefined,
+            targetHint: ""
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [
+                        Unoludo.card("enhanced-red-1-wild4-move-blocked", "number", "red", 1),
+                        Unoludo.card("enhanced-yellow-2-wild4-move-blocked", "number", "yellow", 2),
+                        Unoludo.card("enhanced-wild4-move", "wild4", "wild")
+                    ],
+                    Object.freeze([
+                        tutorial_plane("track", 0),
+                        tutorial_plane("track", 1),
+                        tutorial_plane("track", 2),
+                        tutorial_plane("track", 3)
+                    ])
+                ),
+                tutorial_player(
+                    1,
+                    "Red",
+                    "red",
+                    [],
+                    Object.freeze([
+                        tutorial_plane("track", 4),
+                        tutorial_plane("track", 5),
+                        tutorial_plane("track", 6),
+                        tutorial_plane("track", 7)
+                    ])
+                )
+            ], Unoludo.card("enhanced-top-green-5-wild4-move", "number", "green", 5));
+        },
+        isComplete: function (test_state) {
+            return (
+                Unoludo.top_discard(test_state).id === "enhanced-wild4-move" &&
+                test_state.players[0].planes.every(function (plane, index) {
+                    return plane.status === "track" && plane.position === index + 4;
+                }) &&
+                test_state.players[1].planes.every(function (plane) {
+                    return plane.status === "base";
+                })
+            );
+        }
+    }),
+    Object.freeze({
+        title: "Last Card Reward",
+        instruction: "When you play your final card, you receive two normal cards and one reward card. Reward cards are wild 6, 7, 8, or 9 cards that ignore colour.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-blue-1-empty"]),
+            cardHint: "Play your final card.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Empty your hand to earn a reward."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("enhanced-blue-1-empty", "number", "blue", 1)],
+                    tutorial_four_planes(tutorial_plane("gate", -1))
+                )
+            ], Unoludo.card("enhanced-top-blue-5-empty", "number", "blue", 5), {
+                draw_pile: Object.freeze([
+                    Unoludo.card("enhanced-empty-drawn-red-2", "number", "red", 2),
+                    Unoludo.card("enhanced-empty-drawn-yellow-3", "number", "yellow", 3)
+                ])
+            });
+        },
+        isComplete: function (test_state) {
+            return test_state.players[0].hand.some(function (card) {
+                return card.type === "reward";
+            });
+        }
+    }),
+    Object.freeze({
+        title: "Reward 6",
+        instruction: "Reward 6 ignores colour and can launch a plane from base.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-reward-6"]),
+            cardHint: "Reward 6 can launch from base.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Launch any plane with Reward 6."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("enhanced-reward-6", "reward", "wild", 6)],
+                    Unoludo.empty_planes()
+                )
+            ], Unoludo.card("enhanced-top-red-2-reward6", "number", "red", 2));
+        },
+        isComplete: function (test_state) {
+            // Completing on any launched plane (not only plane 0) so the player
+            // is free to choose which plane to launch.
+            return Unoludo.top_discard(test_state).id === "enhanced-reward-6";
+        }
+    }),
+    Object.freeze({
+        title: "Reward 7-9",
+        instruction: "Reward 7, 8, and 9 also ignore colour. Like Reward 6, they can launch a plane from base, or move any active plane by their number.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["enhanced-reward-9"]),
+            cardHint: "Reward 9 moves any active plane.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Use Reward 9 on any plane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("enhanced-reward-9", "reward", "wild", 9)],
+                    tutorial_four_planes(tutorial_plane("track", 0))
+                )
+            ], Unoludo.card("enhanced-top-red-2-reward9", "number", "red", 2));
+        },
+        isComplete: function (test_state) {
+            // Reward 9 may either move the active plane or launch a base plane,
+            // so completion only requires that the reward card has been played.
+            return Unoludo.top_discard(test_state).id === "enhanced-reward-9";
+        }
+    })
+]);
+
+let tutorial_levels = basic_tutorial_levels;
+let tutorial_series_title = "Basic Tutorial";
+
 const reset_local_runtime_state = function () {
     Object.keys(piece_elements).forEach(function (piece_key) {
         piece_elements[piece_key].remove();
@@ -3694,12 +4614,19 @@ const reset_local_runtime_state = function () {
         cpu_timer = undefined;
     }
 
+    if (tutorialCompletionTimer !== undefined) {
+        window.clearTimeout(tutorialCompletionTimer);
+        tutorialCompletionTimer = undefined;
+    }
+
     hand_cards.classList.remove("cpu-thinking");
     hand_cards.style.filter = "";
     hand_cards.style.transform = "";
     rendered_discard_card_id = undefined;
     pending_render_effects = undefined;
     winner_popup_shown = false;
+    tutorialAcknowledged = false;
+    tutorialAckPending = false;
     Object.keys(draw_streaks).forEach(function (key) {
         draw_streaks[key] = 0;
     });
@@ -3708,6 +4635,241 @@ const reset_local_runtime_state = function () {
     }
     clear_selection();
     hide_winner_popup();
+    if (tutorial_complete_overlay !== null) {
+        tutorial_complete_overlay.classList.add("hidden");
+    }
+    if (tutorial_coach_layer !== null) {
+        tutorial_coach_layer.classList.add("hidden");
+        tutorial_coach_layer.replaceChildren();
+    }
+};
+
+const update_tutorial_panel = function () {
+    const level = tutorial_levels[tutorialLevelIndex];
+
+    if (
+        tutorial_panel === null ||
+        tutorial_level_label === null ||
+        tutorial_title === null ||
+        tutorial_instruction === null
+    ) {
+        return;
+    }
+
+    if (gameMode !== "tutorial" || level === undefined) {
+        tutorial_panel.classList.add("hidden");
+        return;
+    }
+
+    tutorial_panel.classList.remove("hidden");
+    tutorial_level_label.textContent = (
+        tutorial_series_title + " Level " + (tutorialLevelIndex + 1) +
+        " / " + tutorial_levels.length
+    );
+    tutorial_title.textContent = level.title;
+    tutorial_instruction.textContent = level.instruction;
+};
+
+const hide_tutorial_coach = function () {
+    if (tutorial_coach_layer !== null) {
+        tutorial_coach_layer.classList.add("hidden");
+        tutorial_coach_layer.replaceChildren();
+    }
+};
+
+const first_existing_tutorial_card = function (card_ids) {
+    let found_card = null;
+
+    card_ids.some(function (card_id) {
+        const candidate = hand_cards.querySelector(
+            ".card-image[data-card-id='" + card_id + "']"
+        );
+
+        if (candidate !== null) {
+            found_card = candidate;
+            return true;
+        }
+
+        return false;
+    });
+
+    return found_card;
+};
+
+const position_tutorial_coach = function (target, message) {
+    const bubble = document.createElement("div");
+    const rect = target.getBoundingClientRect();
+    const bubble_width = Math.min(260, Math.max(180, window.innerWidth - 32));
+    const target_center = rect.left + rect.width / 2;
+    let left;
+    let top;
+    let arrow_left;
+
+    if (tutorial_coach_layer === null) {
+        return;
+    }
+
+    bubble.className = "tutorial-coach-bubble";
+    bubble.textContent = message;
+    bubble.style.width = bubble_width + "px";
+    bubble.style.visibility = "hidden";
+
+    tutorial_coach_layer.replaceChildren(bubble);
+    tutorial_coach_layer.classList.remove("hidden");
+
+    const bubble_rect = bubble.getBoundingClientRect();
+    left = target_center - bubble_rect.width / 2;
+    top = rect.top - bubble_rect.height - 16;
+
+    if (top < 12) {
+        top = rect.bottom + 16;
+        bubble.classList.add("is-below");
+    }
+
+    left = Math.max(12, Math.min(left, window.innerWidth - bubble_rect.width - 12));
+    top = Math.max(12, Math.min(top, window.innerHeight - bubble_rect.height - 12));
+    arrow_left = Math.max(22, Math.min(target_center - left, bubble_rect.width - 22));
+
+    bubble.style.setProperty("--coach-arrow-left", arrow_left + "px");
+    bubble.style.left = left + "px";
+    bubble.style.top = top + "px";
+    bubble.style.visibility = "visible";
+};
+
+const tutorial_coach_for_level = function (level) {
+    if (typeof level.coach === "function") {
+        return level.coach();
+    }
+
+    return level.coach;
+};
+
+const render_tutorial_coach = function () {
+    const level = tutorial_levels[tutorialLevelIndex];
+    const coach = level === undefined ? undefined : tutorial_coach_for_level(level);
+    let target;
+
+    if (
+        gameMode !== "tutorial" ||
+        level === undefined ||
+        coach === undefined ||
+        active_piece_animations !== 0
+    ) {
+        hide_tutorial_coach();
+        return;
+    }
+
+    if (
+        (selected_card_id === undefined && target_mode === undefined) ||
+        coach.showCardDuringTargetMode === true
+    ) {
+        target = first_existing_tutorial_card(coach.cardIds);
+
+        if (target !== null) {
+            position_tutorial_coach(target, coach.cardHint);
+            return;
+        }
+    }
+
+    if (coach.targetSelector !== undefined) {
+        target = document.querySelector(coach.targetSelector);
+
+        if (target !== null) {
+            position_tutorial_coach(target, coach.targetHint);
+            return;
+        }
+    }
+
+    hide_tutorial_coach();
+};
+
+const load_tutorial_level = function (level_index) {
+    const bounded_index = Math.max(
+        0,
+        Math.min(level_index, tutorial_levels.length - 1)
+    );
+    const level = tutorial_levels[bounded_index];
+
+    tutorialLevelIndex = bounded_index;
+    reset_local_runtime_state();
+    state = level.setup();
+    action_message.textContent = level.instruction;
+    update_mode_controls();
+    update_tutorial_panel();
+    render();
+};
+
+const exit_tutorial = function () {
+    gameMode = "none";
+    reset_local_runtime_state();
+    update_mode_controls();
+    update_tutorial_panel();
+
+    if (window.UnoludoLobby !== undefined) {
+        window.UnoludoLobby.showScreen(window.UnoludoLobby.getHomeScreen());
+    }
+};
+
+const show_tutorial_complete_overlay = function (is_final_level) {
+    if (
+        tutorial_complete_overlay === null ||
+        tutorial_complete_title === null
+    ) {
+        return;
+    }
+
+    tutorial_complete_title.textContent = (
+        is_final_level
+        ? "Tutorial Complete"
+        : "Level Complete"
+    );
+    tutorial_complete_overlay.classList.remove("hidden");
+};
+
+const check_tutorial_progress = function () {
+    const level = tutorial_levels[tutorialLevelIndex];
+    const is_final_level = tutorialLevelIndex >= tutorial_levels.length - 1;
+
+    if (
+        gameMode !== "tutorial" ||
+        level === undefined ||
+        !level.isComplete(state)
+    ) {
+        return;
+    }
+
+    if (
+        tutorial_requires_acknowledgement(level) &&
+        tutorialAcknowledged === false
+    ) {
+        tutorialAckPending = true;
+        action_message.textContent = level.acknowledgeMessage;
+        render();
+        return;
+    }
+
+    if (active_piece_animations !== 0) {
+        if (tutorialCompletionTimer === undefined) {
+            tutorialCompletionTimer = window.setTimeout(function () {
+                tutorialCompletionTimer = undefined;
+                check_tutorial_progress();
+            }, 180);
+        }
+        return;
+    }
+
+    show_tutorial_complete_overlay(is_final_level);
+
+    tutorialCompletionTimer = window.setTimeout(function () {
+        tutorialCompletionTimer = undefined;
+
+        if (is_final_level) {
+            exit_tutorial();
+            return;
+        }
+
+        load_tutorial_level(tutorialLevelIndex + 1);
+    }, 1200);
 };
 
 window.UnoludoApp = {
@@ -3723,6 +4885,28 @@ window.UnoludoApp = {
         });
         action_message.textContent = "Game started.";
         render();
+    },
+
+    startTutorial: function () {
+        gameMode = "tutorial";
+        myPlayerIndex = 0;
+        multiplayerCpuAuthorityIndex = 0;
+        mpStateSynced = false;
+        tutorial_levels = basic_tutorial_levels;
+        tutorial_series_title = "Basic Tutorial";
+        tutorialLevelIndex = 0;
+        load_tutorial_level(0);
+    },
+
+    startEnhancedTutorial: function () {
+        gameMode = "tutorial";
+        myPlayerIndex = 0;
+        multiplayerCpuAuthorityIndex = 0;
+        mpStateSynced = false;
+        tutorial_levels = enhanced_tutorial_levels;
+        tutorial_series_title = "Enhanced Tutorial";
+        tutorialLevelIndex = 0;
+        load_tutorial_level(0);
     },
 
     startMultiPlayer: function (roomId, playerIndex, playerKinds, playerNames) {

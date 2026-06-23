@@ -26,15 +26,28 @@
 
     function startGameStateListener() {
         gameStateListener = roomRef.child("gameState").on("value", function (snapshot) {
-            var state = snapshot.val();
-            if (state && onStateChangeCallback) {
-                lastSyncedVersion = (
-                    state.version === undefined
-                    ? 0
-                    : state.version
-                );
-                onStateChangeCallback(state);
+            var remoteState = snapshot.val();
+            var remoteVersion;
+
+            if (!remoteState || !onStateChangeCallback) {
+                return;
             }
+
+            remoteVersion = (
+                remoteState.version === undefined
+                ? 0
+                : remoteState.version
+            );
+
+            // Ignore snapshots older than the one we have already applied, so a
+            // delayed or out-of-order Firebase update cannot overwrite a newer
+            // state and desync the game.
+            if (lastSyncedVersion !== null && remoteVersion < lastSyncedVersion) {
+                return;
+            }
+
+            lastSyncedVersion = remoteVersion;
+            onStateChangeCallback(remoteState);
         });
     }
 

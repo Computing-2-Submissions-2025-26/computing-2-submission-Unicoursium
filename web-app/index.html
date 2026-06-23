@@ -25,6 +25,14 @@
                     <span class="home-btn-icon">🌐</span>
                     Multiplayer
                 </button>
+                <button id="btn-tutorial" class="home-btn home-btn-tertiary">
+                    <span class="home-btn-icon">✓</span>
+                    Basic Tutorial
+                </button>
+                <button id="btn-enhanced-tutorial" class="home-btn home-btn-tertiary">
+                    <span class="home-btn-icon">★</span>
+                    Enhanced Tutorial
+                </button>
             </div>
             <p class="home-version">v2.0</p>
         </div>
@@ -91,6 +99,11 @@
                     <span class="version-badge">v2.0</span>
                 </div>
                 <div id="player-status-panel" class="player-status-panel" aria-label="Player status"></div>
+                <div id="tutorial-panel" class="tutorial-panel hidden" aria-live="polite">
+                    <span id="tutorial-level-label" class="tutorial-level-label">Tutorial</span>
+                    <h2 id="tutorial-title" class="tutorial-title">Level</h2>
+                    <p id="tutorial-instruction" class="tutorial-instruction">Complete the objective.</p>
+                </div>
                 <div class="played-card-panel">
                     <h2 id="played-card-title">Player Played:</h2>
                     <img id="played-card-image" class="played-card-image" src="./assets/img/B6.png" alt="Last played card">
@@ -113,6 +126,8 @@
             <aside class="right-panel">
                 <div class="right-button-group">
                     <button id="reset-demo">Restart</button>
+                    <button id="tutorial-prev" class="tutorial-control" type="button" hidden>Previous Level</button>
+                    <button id="tutorial-exit" class="tutorial-control" type="button" hidden>Exit</button>
                     <!-- Debug-only controls for single-player development.
                     <button id="debug-move">Move</button>
                     <button id="give-card">Give</button>
@@ -134,12 +149,11 @@
                         </span>
                         <span id="hand-play-type" class="hand-play-type">or 6</span>
                     </div>
-                    <h2>Your Hand</h2>
-                    <div class="hand-panel-header-spacer" aria-hidden="true"></div>
                 </div>
                 <div id="hand-cards" class="hand-cards"></div>
             </section>
         </main>
+        <div id="tutorial-coach-layer" class="tutorial-coach-layer hidden" aria-hidden="true"></div>
     </div>
 
     <!-- ========== OVERLAYS ========== -->
@@ -167,6 +181,13 @@
                 <span id="winner-name">Player</span> Won!
             </h2>
             <button id="winner-restart" class="winner-button">Congratulations!</button>
+        </div>
+    </div>
+
+    <div id="tutorial-complete-overlay" class="tutorial-complete-overlay hidden">
+        <div class="tutorial-complete-modal">
+            <div class="tutorial-complete-check">✓</div>
+            <h2 id="tutorial-complete-title">Level Complete</h2>
         </div>
     </div>
 

@@ -14,6 +14,8 @@
 
     var btnSinglePlayer = document.getElementById("btn-single-player");
     var btnMultiPlayer = document.getElementById("btn-multi-player");
+    var btnTutorial = document.getElementById("btn-tutorial");
+    var btnEnhancedTutorial = document.getElementById("btn-enhanced-tutorial");
 
     var lobbyBack = document.getElementById("lobby-back");
     var playerNameInput = document.getElementById("player-name-input");
@@ -516,6 +518,24 @@
     btnMultiPlayer.addEventListener("click", function () {
         showScreen(lobbyScreen);
     });
+
+    if (btnTutorial !== null) {
+        btnTutorial.addEventListener("click", function () {
+            showScreen(gameScreen);
+            if (window.UnoludoApp && window.UnoludoApp.startTutorial) {
+                window.UnoludoApp.startTutorial();
+            }
+        });
+    }
+
+    if (btnEnhancedTutorial !== null) {
+        btnEnhancedTutorial.addEventListener("click", function () {
+            showScreen(gameScreen);
+            if (window.UnoludoApp && window.UnoludoApp.startEnhancedTutorial) {
+                window.UnoludoApp.startEnhancedTutorial();
+            }
+        });
+    }
 
     lobbyBack.addEventListener("click", function () {
         showScreen(homeScreen);
