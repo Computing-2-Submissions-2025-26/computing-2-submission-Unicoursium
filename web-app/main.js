@@ -37,6 +37,7 @@ const draw_end_turn_button = document.getElementById("draw-end-turn");
 const sound_toggle_button = document.getElementById("sound-toggle");
 const tutorial_prev_button = document.getElementById("tutorial-prev");
 const tutorial_exit_button = document.getElementById("tutorial-exit");
+const single_exit_button = document.getElementById("single-exit");
 const tutorial_panel = document.getElementById("tutorial-panel");
 const tutorial_level_label = document.getElementById("tutorial-level-label");
 const tutorial_title = document.getElementById("tutorial-title");
@@ -327,9 +328,23 @@ const clear_selection = function () {
     target_mode = undefined;
 };
 
-const has_number_six = function (player) {
+const has_base_plane = function (player) {
+    return player.planes.some(function (plane) {
+        return plane.status === "base";
+    });
+};
+
+const has_playable_launch_six = function (player, test_state) {
+    if (!has_base_plane(player)) {
+        return false;
+    }
+
     return player.hand.some(function (card) {
-        return card.type === "number" && card.value === 6;
+        return (
+            (card.type === "number" || card.type === "reward") &&
+            card.value === 6 &&
+            Unoludo.can_play_card(card, test_state)
+        );
     });
 };
 
@@ -459,20 +474,6 @@ const close_log_button = document.getElementById("close-log");
 const log_overlay_list = document.getElementById("log-overlay-list");
 const debug_move_button = document.getElementById("debug-move");
 const give_card_button = document.getElementById("give-card");
-const help_overlay = document.getElementById("help-overlay");
-const help_image = document.getElementById("help-image");
-const help_page_indicator = document.getElementById("help-page-indicator");
-const open_help_button = document.getElementById("open-help");
-const close_help_button = document.getElementById("close-help");
-const help_prev_button = document.getElementById("help-prev");
-const help_next_button = document.getElementById("help-next");
-const help_pages = Object.freeze([
-    "./assets/img/help1.png",
-    "./assets/img/help2.png",
-    "./assets/img/help3.png"
-]);
-
-let help_page_index = 0;
 
 const render_log_overlay = function () {
     log_overlay_list.replaceChildren();
@@ -782,44 +783,6 @@ if (give_card_button !== null) {
     });
 }
 
-const render_help_page = function () {
-    help_image.src = help_pages[help_page_index];
-    help_image.alt = "Unoludo help page " + (help_page_index + 1);
-    help_page_indicator.textContent = (
-        (help_page_index + 1) + " / " + help_pages.length
-    );
-};
-
-const open_help = function () {
-    help_page_index = 0;
-    render_help_page();
-    help_overlay.classList.remove("hidden");
-};
-
-const close_help = function () {
-    help_overlay.classList.add("hidden");
-};
-
-const show_previous_help_page = function () {
-    help_page_index = (
-        help_page_index - 1 + help_pages.length
-    ) % help_pages.length;
-
-    render_help_page();
-};
-
-const show_next_help_page = function () {
-    help_page_index = (
-        help_page_index + 1
-    ) % help_pages.length;
-
-    render_help_page();
-};
-
-open_help_button.addEventListener("click", open_help);
-close_help_button.addEventListener("click", close_help);
-help_prev_button.addEventListener("click", show_previous_help_page);
-help_next_button.addEventListener("click", show_next_help_page);
 open_log_button.addEventListener("click", open_log);
 close_log_button.addEventListener("click", close_log);
 
@@ -1819,7 +1782,7 @@ const cpu_take_turn = function () {
 
     prepare_render_effects(state, next_state, {});
 
-    if (!has_number_six(player)) {
+    if (!has_playable_launch_six(player, state)) {
         increment_draw_streak(player.id);
     } else {
         reset_draw_streak(player.id);
@@ -2355,6 +2318,10 @@ const can_take_local_turn = function () {
         return false;
     }
 
+    if (gameMode === "tutorial" && tutorialAckPending) {
+        return false;
+    }
+
     return (
         (gameMode !== "multi" &&
             Unoludo.current_player(state).kind !== "cpu") ||
@@ -2479,7 +2446,10 @@ const finish_advance_all_in_two_phases = function (next_state, message) {
         check_tutorial_progress();
     });
 
-    return true;
+    // The final state is committed after the second animation phase. Returning
+    // false prevents the generic hand click handler from syncing the temporary
+    // animation-only state in multiplayer games.
+    return false;
 };
 
 const play_selected_card_without_plane = async function () {
@@ -3453,7 +3423,7 @@ const render_hand = function () {
             if (next_state !== undefined) {
                 prepare_render_effects(state, next_state, {});
 
-                if (!has_number_six(player)) {
+                if (!has_playable_launch_six(player, state)) {
                     increment_draw_streak(player.id);
                 } else {
                     reset_draw_streak(player.id);
@@ -3713,18 +3683,18 @@ const render_info = function () {
 const apply_multiplayer_turn_controls = function () {
     const can_play = can_take_local_turn();
 
+    hand_cards.querySelectorAll(".card-image").forEach(function (card_image) {
+        card_image.style.pointerEvents = can_play ? "" : "none";
+        card_image.style.opacity = can_play ? "" : "0.48";
+        card_image.setAttribute("aria-disabled", String(!can_play));
+    });
+
     if (gameMode !== "multi") {
         if (draw_end_turn_button !== null) {
             draw_end_turn_button.disabled = !can_play;
         }
         return;
     }
-
-    hand_cards.querySelectorAll(".card-image").forEach(function (card_image) {
-        card_image.style.pointerEvents = can_play ? "" : "none";
-        card_image.style.opacity = can_play ? "" : "0.48";
-        card_image.setAttribute("aria-disabled", String(!can_play));
-    });
 
     if (draw_end_turn_button !== null) {
         draw_end_turn_button.disabled = !can_play;
@@ -3770,6 +3740,10 @@ const update_mode_controls = function () {
         tutorial_exit_button.hidden = !is_tutorial;
     }
 
+    if (single_exit_button !== null) {
+        single_exit_button.hidden = gameMode !== "single";
+    }
+
     if (draw_end_turn_button !== null) {
         draw_end_turn_button.hidden = is_tutorial;
     }
@@ -3780,10 +3754,6 @@ const update_mode_controls = function () {
 
     if (open_log_button !== null) {
         open_log_button.hidden = is_tutorial;
-    }
-
-    if (open_help_button !== null) {
-        open_help_button.hidden = is_tutorial;
     }
 
     if (debug_move_button !== null) {
@@ -3887,6 +3857,14 @@ if (tutorial_exit_button !== null) {
     });
 }
 
+if (single_exit_button !== null) {
+    single_exit_button.addEventListener("click", function () {
+        if (gameMode === "single") {
+            exit_single_player();
+        }
+    });
+}
+
 document.getElementById("draw-end-turn").addEventListener("click", function () {
     if (!can_take_local_turn()) {
         return;
@@ -3899,7 +3877,7 @@ document.getElementById("draw-end-turn").addEventListener("click", function () {
 
         prepare_render_effects(state, next_state, {});
 
-        if (!has_number_six(player)) {
+        if (!has_playable_launch_six(player, state)) {
             increment_draw_streak(player.id);
         } else {
             reset_draw_streak(player.id);
@@ -4236,13 +4214,13 @@ const basic_tutorial_levels = Object.freeze([
         }
     }),
     Object.freeze({
-        title: "Home Lane",
-        instruction: "Play the blue 1 to move past the home entry and into the home lane.",
+        title: "Finish A Plane",
+        instruction: "Play the blue 1 to move from the last home-lane square into the finish.",
         coach: Object.freeze({
-            cardIds: Object.freeze(["tutorial-blue-1-home"]),
-            cardHint: "This 1 reaches your home lane.",
+            cardIds: Object.freeze(["tutorial-blue-1-finish"]),
+            cardHint: "This 1 reaches the finish.",
             targetSelector: "[data-piece-key='player-0-plane-0']",
-            targetHint: "Enter the home lane."
+            targetHint: "Finish this plane."
         }),
         setup: function () {
             return tutorial_state([
@@ -4250,15 +4228,44 @@ const basic_tutorial_levels = Object.freeze([
                     0,
                     "Player",
                     "blue",
-                    [Unoludo.card("tutorial-blue-1-home", "number", "blue", 1)],
-                    tutorial_four_planes(tutorial_plane("track", 49))
+                    [Unoludo.card("tutorial-blue-1-finish", "number", "blue", 1)],
+                    tutorial_four_planes(tutorial_plane("home", 4))
                 )
             ], Unoludo.card("tutorial-top-blue-1", "number", "blue", 1));
         },
         isComplete: function (test_state) {
             const plane = test_state.players[0].planes[0];
 
-            return plane.status === "home" && plane.position === 0;
+            return plane.status === "finished";
+        }
+    }),
+    Object.freeze({
+        title: "Win The Game",
+        instruction: "Three planes are already finished. Play the blue 1 on the last home-lane plane to finish all four and win.",
+        coach: Object.freeze({
+            cardIds: Object.freeze(["tutorial-blue-1-win"]),
+            cardHint: "This final move wins the game.",
+            targetSelector: "[data-piece-key='player-0-plane-0']",
+            targetHint: "Finish the last plane."
+        }),
+        setup: function () {
+            return tutorial_state([
+                tutorial_player(
+                    0,
+                    "Player",
+                    "blue",
+                    [Unoludo.card("tutorial-blue-1-win", "number", "blue", 1)],
+                    Object.freeze([
+                        tutorial_plane("home", 4),
+                        tutorial_plane("finished", 5),
+                        tutorial_plane("finished", 5),
+                        tutorial_plane("finished", 5)
+                    ])
+                )
+            ], Unoludo.card("tutorial-top-blue-1-win", "number", "blue", 1));
+        },
+        isComplete: function (test_state) {
+            return test_state.winner === 0;
         }
     })
 ]);
@@ -4797,6 +4804,18 @@ const load_tutorial_level = function (level_index) {
     update_mode_controls();
     update_tutorial_panel();
     render();
+};
+
+const exit_single_player = function () {
+    gameMode = "none";
+    reset_local_runtime_state();
+    update_mode_controls();
+    update_tutorial_panel();
+    close_log();
+
+    if (window.UnoludoLobby !== undefined) {
+        window.UnoludoLobby.showScreen(window.UnoludoLobby.getHomeScreen());
+    }
 };
 
 const exit_tutorial = function () {

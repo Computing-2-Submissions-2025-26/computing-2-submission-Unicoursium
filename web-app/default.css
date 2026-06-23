@@ -1158,7 +1158,6 @@ button:active {
     display: none !important;
 }
 
-.help-overlay,
 .log-overlay,
 .winner-overlay,
 .choice-overlay,
@@ -1189,7 +1188,6 @@ button:active {
     -webkit-backdrop-filter: blur(10px) saturate(135%);
 }
 
-.help-overlay.hidden,
 .log-overlay.hidden,
 .winner-overlay.hidden,
 .choice-overlay.hidden,
@@ -1232,36 +1230,6 @@ button:active {
     text-shadow: 0 4px 18px var(--color-shadow-black-55);
 }
 
-.help-content {
-    position: relative;
-    max-width: 92vw;
-    max-height: 92vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    animation: modalEnter 300ms ease-out both;
-}
-
-.help-image {
-    max-width: 88vw;
-    max-height: 84vh;
-    object-fit: contain;
-    border-radius: var(--radius-2xl);
-    box-shadow:
-        0 0 0 2px var(--color-border-glow),
-        0 24px 70px var(--color-shadow-black-50);
-}
-
-.help-page-indicator {
-    margin: var(--space-4) var(--space-0) var(--space-0) var(--space-0);
-    color: var(--color-text-soft);
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-}
-
-.help-close,
 .log-close {
     position: fixed;
     top: var(--space-8);
@@ -1277,40 +1245,6 @@ button:active {
     line-height: 1;
     font-weight: 700;
     cursor: pointer;
-}
-
-.help-nav {
-    position: fixed;
-    top: 50%;
-    z-index: 10001;
-    width: var(--space-17);
-    height: var(--space-18);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-2xl);
-    background: var(--gradient-button);
-    color: var(--color-white);
-    font-size: 64px;
-    line-height: 1;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.help-nav:hover {
-    transform: translateY(-50%) scale(1.05);
-}
-
-.help-nav:active {
-    transform: translateY(-50%) scale(0.95);
-}
-
-.help-prev {
-    left: var(--space-10);
-    transform: translateY(-50%);
-}
-
-.help-next {
-    right: var(--space-10);
-    transform: translateY(-50%);
 }
 
 .log-modal,
@@ -2082,29 +2016,9 @@ button:active {
         font-size: 16px;
     }
 
-    .help-nav {
-        width: 48px;
-        height: 72px;
-        font-size: 48px;
-    }
-
-    .help-prev {
-        left: var(--space-4);
-    }
-
-    .help-next {
-        right: var(--space-4);
-    }
-
-    .help-close,
     .log-close {
         top: var(--space-4);
         right: var(--space-4);
-    }
-
-    .help-image {
-        max-width: 94vw;
-        max-height: 78vh;
     }
 
     .card-image {

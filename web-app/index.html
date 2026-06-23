@@ -62,6 +62,13 @@
                 </div>
             </div>
         </div>
+        <aside class="lobby-source-note" aria-label="Local multiplayer note">
+            To play multiplayer while running the source code locally, duplicate
+            this tab and use the room code to join the host. You can also add CPU
+            players, or visit
+            <a href="https://unoludo.unicoy.uk">unoludo.unicoy.uk</a>
+            for the full GitHub Pages version of the game.
+        </aside>
     </div>
 
     <!-- ========== ROOM WAITING SCREEN ========== -->
@@ -128,6 +135,7 @@
                     <button id="reset-demo">Restart</button>
                     <button id="tutorial-prev" class="tutorial-control" type="button" hidden>Previous Level</button>
                     <button id="tutorial-exit" class="tutorial-control" type="button" hidden>Exit</button>
+                    <button id="single-exit" type="button" hidden>Exit</button>
                     <!-- Debug-only controls for single-player development.
                     <button id="debug-move">Move</button>
                     <button id="give-card">Give</button>
@@ -135,7 +143,6 @@
                     <button id="draw-end-turn">Draw & End Turn</button>
                     <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true">Sound On</button>
                     <button id="open-log">Log</button>
-                    <button id="open-help">Help</button>
                 </div>
             </aside>
 
@@ -157,16 +164,6 @@
     </div>
 
     <!-- ========== OVERLAYS ========== -->
-    <div id="help-overlay" class="help-overlay hidden">
-        <button id="close-help" class="help-close">×</button>
-        <button id="help-prev" class="help-nav help-prev">‹</button>
-        <div class="help-content">
-            <img id="help-image" class="help-image" src="./assets/img/help1.png" alt="Unoludo help page">
-            <p id="help-page-indicator" class="help-page-indicator">1 / 3</p>
-        </div>
-        <button id="help-next" class="help-nav help-next">›</button>
-    </div>
-
     <div id="log-overlay" class="log-overlay hidden">
         <button id="close-log" class="log-close">×</button>
         <div class="log-modal">
