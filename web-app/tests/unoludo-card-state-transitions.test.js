@@ -1,8 +1,15 @@
-import assert from "node:assert/strict";
+/*global describe, globalThis, it*/
+"use strict";
 
-import Unoludo from "../unoludo.js";
+var assert = require("node:assert/strict");
 
-const plane = function (status, position, extra = {}) {
+require("../unoludo.js");
+
+var Unoludo = globalThis.Unoludo;
+
+var plane = function (status, position, extra) {
+    extra = extra || {};
+
     return Object.freeze({
         status: status,
         position: position,
@@ -11,7 +18,7 @@ const plane = function (status, position, extra = {}) {
     });
 };
 
-const player = function (id, name, colour, hand, planes) {
+var player = function (id, name, colour, hand, planes) {
     return Object.freeze({
         id: id,
         name: name,
@@ -22,7 +29,9 @@ const player = function (id, name, colour, hand, planes) {
     });
 };
 
-const state = function (players, top_card, current_player = 0) {
+var state = function (players, top_card, current_player) {
+    current_player = current_player || 0;
+
     return Object.freeze({
         draw_pile: Object.freeze([]),
         discard_pile: Object.freeze([top_card]),
@@ -35,17 +44,16 @@ const state = function (players, top_card, current_player = 0) {
     });
 };
 
-const four_planes = function (first_plane) {
-    return Object.freeze([
-        first_plane,
-        ...Unoludo.empty_planes().slice(1)
-    ]);
+var four_planes = function (first_plane) {
+    return Object.freeze([first_plane].concat(
+        Unoludo.empty_planes().slice(1)
+    ));
 };
 
 describe("Card driven plane state transitions", function () {
     it("launches a plane from base to the gate when a playable 6 card is used", function () {
-        const six = Unoludo.card("blue-6", "number", "blue", 6);
-        const blue = player(
+        var six = Unoludo.card("blue-6", "number", "blue", 6);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -53,7 +61,7 @@ describe("Card driven plane state transitions", function () {
             Unoludo.empty_planes()
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-6",
             0
@@ -71,12 +79,12 @@ describe("Card driven plane state transitions", function () {
             }),
             false
         );
-        assert.equal(next_state.discard_pile.at(-1).id, "blue-6");
+        assert.equal(next_state.discard_pile[next_state.discard_pile.length - 1].id, "blue-6");
     });
 
     it("does not launch a plane from base when the card is not a 6", function () {
-        const three = Unoludo.card("blue-3", "number", "blue", 3);
-        const blue = player(
+        var three = Unoludo.card("blue-3", "number", "blue", 3);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -84,7 +92,7 @@ describe("Card driven plane state transitions", function () {
             Unoludo.empty_planes()
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-3",
             0
@@ -94,8 +102,8 @@ describe("Card driven plane state transitions", function () {
     });
 
     it("moves a plane from the gate onto the track, counting the start square as the first step", function () {
-        const two = Unoludo.card("blue-2", "number", "blue", 2);
-        const blue = player(
+        var two = Unoludo.card("blue-2", "number", "blue", 2);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -103,7 +111,7 @@ describe("Card driven plane state transitions", function () {
             four_planes(plane("gate", -1))
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-2",
             0
@@ -118,8 +126,8 @@ describe("Card driven plane state transitions", function () {
     });
 
     it("moves a plane into the home lane after passing its home entry", function () {
-        const one = Unoludo.card("blue-1", "number", "blue", 1);
-        const blue = player(
+        var one = Unoludo.card("blue-1", "number", "blue", 1);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -127,7 +135,7 @@ describe("Card driven plane state transitions", function () {
             four_planes(plane("track", 49))
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-1",
             0
@@ -142,15 +150,15 @@ describe("Card driven plane state transitions", function () {
     });
 
     it("captures an opponent plane that finishes on the same track square", function () {
-        const four = Unoludo.card("blue-4", "number", "blue", 4);
-        const blue = player(
+        var four = Unoludo.card("blue-4", "number", "blue", 4);
+        var blue = player(
             0,
             "Blue",
             "blue",
             [four],
             four_planes(plane("track", 5))
         );
-        const red = player(
+        var red = player(
             1,
             "Red",
             "red",
@@ -158,7 +166,7 @@ describe("Card driven plane state transitions", function () {
             four_planes(plane("track", 9))
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue, red], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-4",
             0
@@ -176,19 +184,19 @@ describe("Card driven plane state transitions", function () {
             shielded: false,
             frozen: false
         });
-        assert.match(next_state.log.at(-1), /captured Red's plane 0/u);
+        assert.match(next_state.log[next_state.log.length - 1], (/captured Red's plane 0/));
     });
 
     it("leaves a shielded opponent plane on the track instead of capturing it", function () {
-        const four = Unoludo.card("blue-4", "number", "blue", 4);
-        const blue = player(
+        var four = Unoludo.card("blue-4", "number", "blue", 4);
+        var blue = player(
             0,
             "Blue",
             "blue",
             [four],
             four_planes(plane("track", 5))
         );
-        const red = player(
+        var red = player(
             1,
             "Red",
             "red",
@@ -196,7 +204,7 @@ describe("Card driven plane state transitions", function () {
             four_planes(plane("track", 9, {shielded: 1}))
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             state([blue, red], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-4",
             0
@@ -208,12 +216,12 @@ describe("Card driven plane state transitions", function () {
             shielded: 1,
             frozen: false
         });
-        assert.match(next_state.log.at(-1), /protected by shield/u);
+        assert.match(next_state.log[next_state.log.length - 1], (/protected by shield/));
     });
 
     it("advances every active own plane by four spaces when Wild +4 advance all is chosen", function () {
-        const wild_four = Unoludo.card("wild4-advance", "wild4", "wild");
-        const blue = player(
+        var wild_four = Unoludo.card("wild4-advance", "wild4", "wild");
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -226,7 +234,7 @@ describe("Card driven plane state transitions", function () {
             ]
         );
 
-        const next_state = Unoludo.play_wild4_card(
+        var next_state = Unoludo.play_wild4_card(
             state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "wild4-advance",
             "advance_all",
@@ -260,15 +268,15 @@ describe("Card driven plane state transitions", function () {
     });
 
     it("keeps a shield active for two arrivals at the protected player's turn", function () {
-        const zero = Unoludo.card("blue-0", "number", "blue", 0);
-        const blue = player(
+        var zero = Unoludo.card("blue-0", "number", "blue", 0);
+        var blue = player(
             0,
             "Blue",
             "blue",
             [zero],
             four_planes(plane("track", 8))
         );
-        const red = player(
+        var red = player(
             1,
             "Red",
             "red",
@@ -276,7 +284,7 @@ describe("Card driven plane state transitions", function () {
             Unoludo.empty_planes()
         );
 
-        let next_state = Unoludo.play_zero_card(
+        var next_state = Unoludo.play_zero_card(
             state([blue, red], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-0",
             0

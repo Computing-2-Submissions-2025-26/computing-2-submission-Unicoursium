@@ -6,6 +6,11 @@
 (function () {
     "use strict";
 
+    var leaveRoom;
+    var removeCpuPlayer;
+    var startRoomListener;
+    var updatePlayersCount;
+
     // ---- DOM refs ----
     var homeScreen = document.getElementById("home-screen");
     var lobbyScreen = document.getElementById("lobby-screen");
@@ -43,8 +48,6 @@
     var gameStartCallback = null;
 
     var PLAYER_COLOURS = ["#4d96ff", "#6bcb77", "#ff6b6b", "#ffd93d"];
-    var CPU_NAMES = ["CPU Green", "CPU Red", "CPU Yellow"];
-    var CPU_COUNT = 0; // local counter for naming
 
     // ---- Screen management ----
     function showScreen(screen) {
@@ -57,7 +60,9 @@
     // ---- Generate 4-digit room code ----
     function generateRoomCode() {
         var code = "";
-        for (var i = 0; i < 4; i++) {
+        var i;
+
+        for (i = 0; i < 4; i += 1) {
             code += Math.floor(Math.random() * 10).toString();
         }
         return code;
@@ -65,7 +70,7 @@
 
     // ---- Room code validation ----
     function isValidRoomCode(code) {
-        return /^\d{4}$/.test(code);
+        return (/^\d{4}$/).test(code);
     }
 
     // ---- Check if player is host ----
@@ -82,9 +87,9 @@
         var cpu = 0;
         Object.keys(players).forEach(function (key) {
             if (players[key].isCPU) {
-                cpu++;
+                cpu += 1;
             } else {
-                human++;
+                human += 1;
             }
         });
         return { human: human, cpu: cpu, total: human + cpu };
@@ -103,7 +108,7 @@
 
             var dot = document.createElement("span");
             dot.className = "player-dot";
-            dot.style.background = PLAYER_COLOURS[parseInt(key)] || "#999";
+            dot.style.background = PLAYER_COLOURS[parseInt(key, 10)] || "#999";
 
             var name = document.createElement("span");
             if (p.isCPU) {
@@ -114,7 +119,7 @@
 
             var label = document.createElement("span");
             label.className = "player-label";
-            label.textContent = "P" + (parseInt(key) + 1);
+            label.textContent = "P" + (parseInt(key, 10) + 1);
 
             li.appendChild(dot);
             li.appendChild(name);
@@ -152,7 +157,9 @@
 
     // ---- Add CPU player ----
     function addCpuPlayer() {
-        if (!isHost() || !currentRoomId) return;
+        if (!isHost() || !currentRoomId) {
+            return;
+        }
 
         firebaseReady.then(function (user) {
             var roomRef = db.ref("rooms/" + currentRoomId);
@@ -177,8 +184,8 @@
                     return;
                 }
 
-                usedSlots = keys.map(function (k) { return parseInt(k); });
-                for (i = 0; i < 4; i++) {
+                usedSlots = keys.map(function (k) { return parseInt(k, 10); });
+                for (i = 0; i < 4; i += 1) {
                     if (usedSlots.indexOf(i) === -1) {
                         newSlot = i;
                         break;
@@ -211,25 +218,27 @@
         });
     }
 
-    function updatePlayersCount(roomId) {
+    updatePlayersCount = function (roomId) {
         db.ref("rooms/" + roomId + "/players").once("value", function (snapshot) {
             var players = snapshot.val() || {};
             db.ref("rooms/" + roomId + "/playersCount").set(
                 Object.keys(players).length
             );
         });
-    }
+    };
 
     // ---- Remove CPU player ----
-    function removeCpuPlayer(slotKey) {
-        if (!isHost() || !currentRoomId) return;
+    removeCpuPlayer = function (slotKey) {
+        if (!isHost() || !currentRoomId) {
+            return;
+        }
 
         db.ref("rooms/" + currentRoomId + "/players/" + slotKey)
             .remove()
             .then(function () {
                 updatePlayersCount(currentRoomId);
             });
-    }
+    };
 
     // ---- Create room ----
     function createRoom() {
@@ -317,8 +326,8 @@
                     return;
                 }
 
-                usedSlots = keys.map(function (k) { return parseInt(k); });
-                for (i = 0; i < 4; i++) {
+                usedSlots = keys.map(function (k) { return parseInt(k, 10); });
+                for (i = 0; i < 4; i += 1) {
                     if (usedSlots.indexOf(i) === -1) {
                         newIndex = i;
                         break;
@@ -381,7 +390,7 @@
     }
 
     // ---- Listen for room changes ----
-    function startRoomListener(code) {
+    startRoomListener = function (code) {
         var previousRoomId = listenerRoomId;
         if (roomListener) {
             db.ref("rooms/" + previousRoomId).off("value", roomListener);
@@ -426,7 +435,7 @@
                         "Player 4"
                     ];
                     Object.keys(currentPlayers).forEach(function (key) {
-                        var idx = parseInt(key);
+                        var idx = parseInt(key, 10);
                         playerNames[idx] = currentPlayers[key].name || playerNames[idx];
                         if (currentPlayers[key].isCPU) {
                             playerKinds[idx] = "cpu";
@@ -447,10 +456,10 @@
                 return;
             }
         });
-    }
+    };
 
     // ---- Leave room ----
-    function leaveRoom() {
+    leaveRoom = function () {
         var roomId = currentRoomId;
         var playerIndex = currentPlayerIndex;
 
@@ -485,8 +494,8 @@
 
                 if (hostIndex === playerIndex) {
                     room.hostIndex = parseInt(remainingKeys.sort(function (a, b) {
-                        return parseInt(a) - parseInt(b);
-                    })[0]);
+                        return parseInt(a, 10) - parseInt(b, 10);
+                    })[0], 10);
                 }
 
                 return room;
@@ -498,11 +507,13 @@
         currentHostIndex = 0;
         currentPlayers = {};
         showScreen(lobbyScreen);
-    }
+    };
 
     // ---- Start the game (host only) ----
     function startGame() {
-        if (!isHost()) return;
+        if (!isHost()) {
+            return;
+        }
         var roomRef = db.ref("rooms/" + currentRoomId);
         roomRef.update({ status: "playing" });
     }
@@ -592,4 +603,4 @@
 
     // Show home screen on load
     showScreen(homeScreen);
-})();
+}());

@@ -1,8 +1,15 @@
-import assert from "node:assert/strict";
+/*global describe, globalThis, it*/
+"use strict";
 
-import Unoludo from "../unoludo.js";
+var assert = require("node:assert/strict");
 
-const plane = function (status, position, extra = {}) {
+require("../unoludo.js");
+
+var Unoludo = globalThis.Unoludo;
+
+var plane = function (status, position, extra) {
+    extra = extra || {};
+
     return Object.freeze({
         status: status,
         position: position,
@@ -11,7 +18,7 @@ const plane = function (status, position, extra = {}) {
     });
 };
 
-const player = function (id, name, colour, hand, planes) {
+var player = function (id, name, colour, hand, planes) {
     return Object.freeze({
         id: id,
         name: name,
@@ -22,11 +29,13 @@ const player = function (id, name, colour, hand, planes) {
     });
 };
 
-const game_state = function (
+var game_state = function (
     players,
     top_card,
-    options = {}
+    options
 ) {
+    options = options || {};
+
     return Object.freeze({
         draw_pile: Object.freeze(options.draw_pile || []),
         discard_pile: Object.freeze(options.discard_pile || [top_card]),
@@ -52,10 +61,10 @@ describe("Special card rules and edge cases", function () {
     });
 
     it("uses both Wild and number cards when a Wild combo moves a plane", function () {
-        const wild = Unoludo.card("wild", "wild", "wild");
-        const three = Unoludo.card("blue-3", "number", "blue", 3);
-        const spare = Unoludo.card("blue-1", "number", "blue", 1);
-        const blue = player(
+        var wild = Unoludo.card("wild", "wild", "wild");
+        var three = Unoludo.card("blue-3", "number", "blue", 3);
+        var spare = Unoludo.card("blue-1", "number", "blue", 1);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -68,7 +77,7 @@ describe("Special card rules and edge cases", function () {
             ]
         );
 
-        const next_state = Unoludo.play_wild_combo(
+        var next_state = Unoludo.play_wild_combo(
             game_state([blue], Unoludo.card("top-red", "number", "red", 5)),
             "wild",
             "blue-3",
@@ -98,9 +107,9 @@ describe("Special card rules and edge cases", function () {
     });
 
     it("launches a base plane when a reward 6 card is used", function () {
-        const reward = Unoludo.card("reward-6", "reward", "wild", 6);
-        const spare = Unoludo.card("blue-1", "number", "blue", 1);
-        const blue = player(
+        var reward = Unoludo.card("reward-6", "reward", "wild", 6);
+        var spare = Unoludo.card("blue-1", "number", "blue", 1);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -108,7 +117,7 @@ describe("Special card rules and edge cases", function () {
             Unoludo.empty_planes()
         );
 
-        const next_state = Unoludo.play_reward_card(
+        var next_state = Unoludo.play_reward_card(
             game_state([blue], Unoludo.card("top-blue", "number", "blue", 6)),
             "reward-6",
             0,
@@ -123,19 +132,19 @@ describe("Special card rules and edge cases", function () {
             frozen: false
         });
         assert.equal(next_state.active_colour, "yellow");
-        assert.equal(next_state.discard_pile.at(-1).id, "reward-6");
+        assert.equal(next_state.discard_pile[next_state.discard_pile.length - 1].id, "reward-6");
     });
 
     it("freezes the targeted opponent's active planes until that opponent ends their turn", function () {
-        const skip = Unoludo.card("blue-skip", "skip", "blue");
-        const blue = player(
+        var skip = Unoludo.card("blue-skip", "skip", "blue");
+        var blue = player(
             0,
             "Blue",
             "blue",
             [skip],
             Unoludo.empty_planes()
         );
-        const red = player(
+        var red = player(
             1,
             "Red",
             "red",
@@ -148,7 +157,7 @@ describe("Special card rules and edge cases", function () {
             ]
         );
 
-        let next_state = Unoludo.play_skip_card(
+        var next_state = Unoludo.play_skip_card(
             game_state([blue, red], Unoludo.card("top-skip", "skip", "blue")),
             "blue-skip",
             1,
@@ -180,15 +189,15 @@ describe("Special card rules and edge cases", function () {
     });
 
     it("returns an opponent plane to base when Reverse moves it behind its start square", function () {
-        const reverse = Unoludo.card("blue-reverse", "reverse", "blue");
-        const blue = player(
+        var reverse = Unoludo.card("blue-reverse", "reverse", "blue");
+        var blue = player(
             0,
             "Blue",
             "blue",
             [reverse],
             Unoludo.empty_planes()
         );
-        const red = player(
+        var red = player(
             1,
             "Red",
             "red",
@@ -201,7 +210,7 @@ describe("Special card rules and edge cases", function () {
             ]
         );
 
-        const next_state = Unoludo.play_reverse_card(
+        var next_state = Unoludo.play_reverse_card(
             game_state([blue, red], Unoludo.card("top-reverse", "reverse", "blue")),
             "blue-reverse",
             1,
@@ -222,14 +231,14 @@ describe("Special card rules and edge cases", function () {
     });
 
     it("refills the draw pile from the discard pile while preserving the top discard", function () {
-        const blue = player(
+        var blue = player(
             0,
             "Blue",
             "blue",
             [],
             Unoludo.empty_planes()
         );
-        const next_state = Unoludo.draw_cards(
+        var next_state = Unoludo.draw_cards(
             game_state(
                 [blue],
                 Unoludo.card("discard-top", "number", "red", 4),
@@ -251,14 +260,14 @@ describe("Special card rules and edge cases", function () {
             Unoludo.card("discard-top", "number", "red", 4)
         ]);
         assert.equal(
-            next_state.log.includes("Draw pile was refilled from the discard pile."),
+            next_state.log.indexOf("Draw pile was refilled from the discard pile.") !== -1,
             true
         );
     });
 
     it("sets the winner when a move finishes the player's fourth plane", function () {
-        const one = Unoludo.card("blue-1", "number", "blue", 1);
-        const blue = player(
+        var one = Unoludo.card("blue-1", "number", "blue", 1);
+        var blue = player(
             0,
             "Blue",
             "blue",
@@ -271,7 +280,7 @@ describe("Special card rules and edge cases", function () {
             ]
         );
 
-        const next_state = Unoludo.play_number_card(
+        var next_state = Unoludo.play_number_card(
             game_state([blue], Unoludo.card("top-blue", "number", "blue", 1)),
             "blue-1",
             3

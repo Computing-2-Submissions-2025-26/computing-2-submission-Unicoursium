@@ -1,0 +1,21 @@
+{
+    "browser": true,
+    "node": true,
+    "devel": true,
+    "vars": true,
+    "white": true,
+    "unparam": true,
+    "undef": true,
+    "predef": [
+        "Unoludo",
+        "UnoludoBoard",
+        "UnoludoAssets",
+        "firebase",
+        "firebaseReady",
+        "db",
+        "MutationObserver",
+        "AudioContext",
+        "webkitAudioContext",
+        "Promise"
+    ]
+}

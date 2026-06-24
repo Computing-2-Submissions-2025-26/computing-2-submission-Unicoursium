@@ -1,0 +1,4 @@
+{
+    "jslint.version": "2013-08-26",
+    "jslint.config": "${workspaceFolder}/jslint.conf"
+}

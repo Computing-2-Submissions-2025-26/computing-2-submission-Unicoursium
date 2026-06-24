@@ -1,18 +1,17 @@
 {
   "name": "computing-2-submission",
-  "type": "module",
   "version": "1.0.0",
   "description": "",
   "main": "web-app/unoludo.js",
   "scripts": {
+    "lint": "jslint web-app/*.js web-app/tests/*.js",
     "test": "mocha \"web-app/tests/**/*.test.js\""
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "jsdoc": "^4.0.5",
-    "jslint": "^0.12.1",
-    "ramda": "^0.32.0"
+    "jslint": "^0.12.1"
   },
   "devDependencies": {
     "docdash": "^2.0.2",
